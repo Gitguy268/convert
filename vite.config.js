@@ -113,6 +113,17 @@ export default defineConfig({
         });
       },
     },
+    {
+      // index.html ends with an inline script that sends a plain file server to the build
+      // (see there). It has nothing to do in the build itself, whose CSP blocks inline scripts.
+      name: "drop-source-page-script",
+      apply: "build",
+      transformIndexHtml: {
+        order: "post",
+        handler: (html) =>
+          html.replace(/\n\s*<script>\s*\/\/ A plain file server[\s\S]*?<\/script>/, ""),
+      },
+    },
     preact({
       prefreshEnabled: false,
       reactAliasesEnabled: true,

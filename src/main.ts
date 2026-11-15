@@ -304,6 +304,8 @@ async function attemptConvertPath(
       );
 
       // no waiting for animation frames: a tab in the background gets none
+      // settings that leave nothing to convert fail on every route alike
+      if (e instanceof Error && e.name === "NothingToConvertError") throw e;
       await markDeadEnd(path.slice(0, i + 2));
 
       return null;
@@ -502,6 +504,22 @@ window.tryConvertByTraversing = async function (
     settings = {},
   }: { abort?: AbortSignal; settings?: ConvertOptions } = {},
 ) {
+  try {
+    return await convertByTraversing(files, from, to, abort, settings);
+  } catch (e) {
+    // already logged as the reason the route failed
+    if (e instanceof Error && e.name === "NothingToConvertError") return null;
+    throw e;
+  }
+};
+
+async function convertByTraversing(
+  files: FileData[],
+  from: ConvertPathNode,
+  to: ConvertPathNode,
+  abort: AbortSignal,
+  settings: ConvertOptions,
+) {
   deadEndAttempts = [];
   await window.traversionGraph.clearDeadEndPaths();
 
@@ -531,7 +549,8 @@ window.tryConvertByTraversing = async function (
     const result = await searchAndConvert(files, from, to, { ...search, strict: true });
     if (result) return result;
   } catch (e) {
-    if (e instanceof Error && e.name === "AbortError") throw e;
+    if (e instanceof Error && (e.name === "AbortError" || e.name === "NothingToConvertError"))
+      throw e;
     abort.throwIfAborted();
     console.warn(e);
   }
@@ -543,7 +562,7 @@ window.tryConvertByTraversing = async function (
   deadEndAttempts = [];
   await window.traversionGraph.clearDeadEndPaths();
   return searchAndConvert(files, from, to, search);
-};
+}
 
 window.tryConvertByPath = async function (
   files: FileData[],

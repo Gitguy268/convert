@@ -4,6 +4,7 @@ import type { ConvertContext } from "src/ui/ProgressStore.ts";
 import normalizeMimeType from "src/normalizeMimeType.ts";
 import * as mb from "mediabunny";
 import { changeExt } from "src/common/index.ts";
+import { NothingToConvertError } from "src/errors.ts";
 import type { FormatOptions } from "src/Settings.ts";
 
 const FORMATS = new Map<string, [name: string, input: mb.InputFormat, output: mb.OutputFormat]>([
@@ -152,6 +153,11 @@ class mediabunnyHandler implements FormatHandler {
         target: new mb.BufferTarget(),
       });
       const { maxSize, start, end, stripMetadata } = options;
+      // a start past the end gives a file without a single packet, which is no result
+      if (start !== undefined && start >= (await input.computeDuration()))
+        throw new NothingToConvertError(
+          `Nothing of ${inputFile.name} lies between the start and the end that were set.`,
+        );
       // without a bitrate mediabunny copies the streams, which makes a same-format run pointless
       const fallbackBitrate = inputFormat.internal === outputFormat.internal && mb.QUALITY_MEDIUM;
       const videoCodec = fromFFmpegName(

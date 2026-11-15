@@ -795,9 +795,11 @@ test(
 );
 
 test(
-  "formats without a compressor have no same-format route",
+  "formats without a compressor take upstream's own same-format route",
   async () => {
-    expect(await convertGenerated("plain text", Formats.TEXT, Formats.TEXT)).toBeNull();
+    // no compressor is listed for plain text, so upstream's graph search handles it
+    const same = await convertGenerated("plain text", Formats.TEXT, Formats.TEXT);
+    expect(same!.text).toBe("plain text");
   },
   { timeout: 60000 },
 );
@@ -1234,8 +1236,9 @@ test(
           [{ name: "doom.mp4", bytes }],
           from,
           to,
-          undefined,
-          { speed: 2 },
+          {
+            settings: { speed: 2 },
+          },
         );
         if (!output) return null;
         const video = document.createElement("video");

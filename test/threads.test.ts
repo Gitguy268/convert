@@ -2,7 +2,8 @@ import { afterAll, expect, test } from "bun:test";
 import puppeteer from "puppeteer";
 
 // The same build as test/commonFormats.test.ts, served with the headers that make a page
-// cross-origin isolated. That switches FFmpeg, ONNX Runtime and OxiPNG to their threaded builds.
+// cross-origin isolated, which upstream's FFmpeg needs and which gives ONNX Runtime and OxiPNG
+// their threads.
 /** Serves the build, with or without the two isolation headers. */
 function serve(isolated: boolean) {
   return Bun.serve({
@@ -93,28 +94,13 @@ test("the page is cross-origin isolated", async () => {
 });
 
 test(
-  "FFmpeg encodes H.264 with its multithreaded core",
+  "FFmpeg converts on its threaded build",
   async () => {
-    const mkv = await convert("doom.mp4", MP4, { mime: "video/x-matroska", format: "matroska" });
+    // AVI, which only FFmpeg writes: mediabunny would take MKV or MP4
+    const avi = await convert("doom.mp4", MP4, { mime: "video/x-msvideo", format: "avi" });
 
-    expect(mkv?.handler).toBe("FFmpeg");
-    expect(mkv!.size).toBeGreaterThan(10000);
-    expect(logs).toContain("[FFmpeg] Reloading FFmpeg with threads...");
-  },
-  { timeout: 120000 },
-);
-
-test(
-  "FFmpeg keeps to one thread where its encoders can hang with more",
-  async () => {
-    const before = logs.length;
-    // with the multithreaded core this conversion never finished
-    const gif = await convert("doom.mp4", MP4, { mime: "image/gif", format: "gif" });
-
-    expect(gif?.handler).toBe("FFmpeg");
-    expect(gif!.size).toBeGreaterThan(10000);
-    expect(logs.slice(before)).toContain("[FFmpeg] Reloading FFmpeg...");
-    expect(logs.slice(before)).not.toContain("[FFmpeg] Reloading FFmpeg with threads...");
+    expect(avi?.handler).toBe("FFmpeg");
+    expect(avi!.size).toBeGreaterThan(10000);
   },
   { timeout: 120000 },
 );
@@ -145,7 +131,7 @@ test(
   "the service worker isolates a page whose host sends no headers",
   async () => {
     const plain = serve(false);
-    // any name but localhost, where the page leaves the service worker out
+    // not localhost, so that the page is no secure context without the flag below
     const origin = `http://convert.test:${plain.port}`;
     const other = await puppeteer.launch({
       headless: true,
@@ -160,7 +146,7 @@ test(
       const tab = await other.newPage();
       await tab.goto(`${origin}/convert/index.html`);
 
-      // The page registers the worker and reloads under it. Asked again and again, because
+      // mini-coi registers the worker and reloads under it. Asked again and again, because
       // the reload can come at any moment and takes the answer to a question in flight with it.
       let isolated = false;
       for (let i = 0; i < 60 && !isolated; i++) {
@@ -179,25 +165,3 @@ test(
   },
   { timeout: 120000 },
 );
-
-test("on localhost the page registers no service worker", async () => {
-  const plain = serve(false);
-  const tab = await browser.newPage();
-  try {
-    await Promise.all([
-      new Promise((resolve) => {
-        tab.on("console", (msg) => {
-          if (msg.text() === "Built initial format list.") resolve(null);
-        });
-      }),
-      tab.goto(`http://localhost:${plain.port}/convert/index.html`),
-    ]);
-
-    expect(await tab.evaluate(() => crossOriginIsolated)).toBe(false);
-    const registrations = await tab.evaluate(() => navigator.serviceWorker.getRegistrations());
-    expect(registrations).toHaveLength(0);
-  } finally {
-    await tab.close();
-    await plain.stop(true);
-  }
-});

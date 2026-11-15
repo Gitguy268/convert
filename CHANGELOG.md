@@ -15,6 +15,7 @@ Merged p2r3/convert up to `45b889d` (109 upstream commits): its own FFmpeg build
 - `threeModels` keeps only what upstream's threejs handler lacks: USDZ in and out, 3DS in, and glTF out.
 - File type detection in `src/batch.ts` uses upstream's `src/detectFormat.ts`, and remembers the last choice per file extension, as upstream does.
 - Handlers take no `args` parameter, as upstream's interface now requires.
+- Fixed along the way: in dark mode, PPTX to PDF went through Pandoc and Typst, because html2canvas can't parse the dark theme's `color-mix()` text colour (pptxRenderer now sets its own). A cut that starts past the end stops the search with `NothingToConvertError` instead of returning an empty file.
 
 ### Changes in this fork
 

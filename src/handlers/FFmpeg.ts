@@ -21,6 +21,7 @@ import {
   type Edits,
 } from "src/edits.ts";
 import { sameFormat } from "src/FormatHandler.ts";
+import { NothingToConvertError } from "src/errors.ts";
 
 // ffmpeg sometimes dunno, help it
 const CODEC_PATCHES: Record<string, { add?: string[]; remove?: string[] }> = {
@@ -498,7 +499,7 @@ class FFmpegHandler implements FormatHandler {
         result.stdout.includes("video:0kB audio:0kB") ||
         result.stdout.includes("video:0KiB audio:0KiB")
       ) {
-        throw new Error(
+        throw new NothingToConvertError(
           `Nothing of ${file.name} lies between the start and the end that were set.`,
         );
       }
@@ -792,6 +793,14 @@ class FFmpegHandler implements FormatHandler {
 
     ctx?.log("Reading output file...");
 
+    // a container around no packets at all, such as a cut that starts past the end
+    if (stdout.includes("Output file is empty, nothing was encoded")) {
+      const message = `FFmpeg encoded nothing of ${inputFiles[0].name}.`;
+      // only a cut is to blame for sure; otherwise another route may still work
+      throw edits.start !== undefined || edits.end !== undefined
+        ? new NothingToConvertError(`${message} Nothing lies between the start and the end.`)
+        : new Error(message);
+    }
     if (!fileData || (fileData instanceof Uint8Array && fileData.length === 0)) {
       ctx?.log("FFmpeg failed to produce output file", "error");
       throw "FFmpeg failed to produce output file";

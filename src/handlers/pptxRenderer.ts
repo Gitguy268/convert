@@ -78,6 +78,9 @@ export default class pptxRendererHandler implements FormatHandler {
     stagingRoot.style.top = "0";
     stagingRoot.style.pointerEvents = "none";
     stagingRoot.style.background = "#ffffff";
+    // the dark theme's text colour is a color-mix(), which html2canvas can't parse, and a slide
+    // inherits it wherever it sets no colour of its own
+    stagingRoot.style.color = "#000000";
     stagingRoot.style.zIndex = "-1";
     document.body.appendChild(stagingRoot);
 

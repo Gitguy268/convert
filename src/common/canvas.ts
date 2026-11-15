@@ -1,3 +1,5 @@
+import type { ConvertOptions } from "src/Settings.ts";
+
 export type CanvasBundle = { canvas: OffscreenCanvas; ctx: OffscreenCanvasRenderingContext2D };
 
 export function createCanvas(
@@ -11,15 +13,16 @@ export function createCanvas(
   return { canvas, ctx };
 }
 
-/** @param quality Lossy quality from 1 to 100. Browser default if omitted. */
+/** Encodes the canvas. Browser default quality if `quality` is omitted. */
 export async function canvasToBlob(
   bundle: CanvasBundle,
   mime: string,
+  /** Encoder quality from 0 to 1, for lossy formats. */
   quality?: number,
 ): Promise<Uint8Array<ArrayBuffer>> {
   const blob = await bundle.canvas.convertToBlob({
     type: mime,
-    quality: quality && quality / 100,
+    quality,
   });
   return new Uint8Array(await blob.arrayBuffer());
 }
@@ -69,4 +72,15 @@ export function drawWatermark(
   ctx.fillStyle = "#808080";
   ctx.fillText(text, 0, 0);
   ctx.restore();
+}
+
+const scaled = (side: number, from: number, to: number) =>
+  from ? Math.max(1, Math.round((side * to) / from)) : side;
+
+/** The size to output a `width`×`height` image at. With one side set, the aspect ratio is kept. */
+export function resolveSize(width: number, height: number, options: ConvertOptions = {}) {
+  return {
+    width: options.width ?? (options.height ? scaled(width, height, options.height) : width),
+    height: options.height ?? (options.width ? scaled(height, width, options.width) : height),
+  };
 }

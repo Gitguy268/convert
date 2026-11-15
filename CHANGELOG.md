@@ -5,6 +5,17 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Synced with upstream (2026-11-15)
+
+Merged p2r3/convert up to `45b889d` (109 upstream commits): its own FFmpeg build, prebuilts in GitHub Releases, the settings panel (`src/Settings.ts`), keyboard navigation, browsing formats without a file, the `ANY` format for archives, strict CSP with mini-coi, more three.js formats, new handlers, and GPL-2.0-or-later. How the fork's work fits on top:
+
+- The fork's settings (`src/ConversionSettings.ts` and its form) are gone. Their keys are now in upstream's `Settings` (`maxSize`, `start`, `end`, `copyStreams`, `speed`, the audio edits, the PDF settings, `stripMetadata`, `watermark`, `colors`), declared per output format with `.options()` and read from `ctx.options`. The FFmpeg filters, the clean-up of conflicting settings and the Compress route moved to `src/edits.ts`, with tests in `test/edits.test.ts`. The zip password is a field in the settings panel.
+- The FFmpeg handler is upstream's, with the fork's cuts, stream copy, audio edits, speed, longest side, metadata removal and GIF palette pass added. The multithreaded ffmpeg.wasm core and its hang workaround are dropped, because upstream's build has threads.
+- coi-serviceworker and the fork's `<meta>` CSP gave way to upstream's mini-coi and shared security headers. The file:// warning moved to `public/file-protocol.js`, because the CSP allows no inline scripts.
+- `threeModels` keeps only what upstream's threejs handler lacks: USDZ in and out, 3DS in, and glTF out.
+- File type detection in `src/batch.ts` uses upstream's `src/detectFormat.ts`, and remembers the last choice per file extension, as upstream does.
+- Handlers take no `args` parameter, as upstream's interface now requires.
+
 ### Changes in this fork
 
 This repository is a fork of [p2r3/convert](https://github.com/p2r3/convert). The files below were changed or added by Lucas Van De Weerd between 2026-10-10 and 2026-10-20 and are, like the rest of the project, licensed under the GNU General Public License, version 2.

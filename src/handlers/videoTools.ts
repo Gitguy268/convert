@@ -3,7 +3,7 @@ import { FormatDefinition } from "../FormatHandler.ts";
 import type { ConvertContext } from "../ui/ProgressStore.js";
 import Formats, { AUDIO_FILES, Category } from "src/Formats.ts";
 import { changeExt } from "src/common/index.ts";
-import { ffmpegScaleFilter } from "src/ConversionSettings.ts";
+import { ffmpegScaleFilter } from "src/edits.ts";
 import { FFmpeg, type LogEvent } from "@ffmpeg/ffmpeg";
 import ffmpegCoreUrl from "@ffmpeg/core?url";
 import ffmpegWasmUrl from "@ffmpeg/core/wasm?url";
@@ -84,7 +84,6 @@ export class contactSheetHandler implements FormatHandler {
     inputFiles: FileData[],
     _inputFormat: FileFormat,
     _outputFormat: FileFormat,
-    _args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     const ffmpeg = await loadFFmpeg();
@@ -129,7 +128,6 @@ export class audioVideoHandler implements FormatHandler {
     inputFiles: FileData[],
     _inputFormat: FileFormat,
     _outputFormat: FileFormat,
-    _args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     const ffmpeg = await loadFFmpeg();

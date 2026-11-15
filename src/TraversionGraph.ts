@@ -1,7 +1,15 @@
-import { ConvertPathNode, type FileFormat, type HandlerDefinition } from "./FormatHandler.ts";
-import type { CategoryType } from "./Formats.ts";
+import "./polyfills.ts";
+import {
+  ConvertPathNode,
+  formatIdentifier,
+  sameFormat,
+  type FileFormat,
+  type HandlerDefinition,
+} from "./FormatHandler.ts";
+import { SpecialFormats, type CategoryType } from "./Formats.ts";
 import { PriorityQueue } from "./PriorityQueue.ts";
 import * as comlink from "comlink";
+import { pathSupportsOptions, type ConvertOptions } from "./Settings.ts";
 
 export interface CostEntry {
   reason: string;
@@ -9,6 +17,13 @@ export interface CostEntry {
 }
 
 const sumCosts = (costs: CostEntry[]) => costs.reduce((sum, entry) => sum + entry.cost, 0);
+
+export interface SearchPathOptions {
+  simpleMode?: boolean;
+  isCancelled?: () => boolean | Promise<boolean>;
+  debug?: (costs: (CostEntry & { step: number })[], total: number) => void;
+  requiredSettings?: ConvertOptions;
+}
 
 interface CostTrace {
   previous?: CostTrace;
@@ -20,7 +35,11 @@ interface QueueNode {
   cost: number;
   path: ConvertPathNode[];
   trace?: CostTrace;
+  /** Whether an anyInput edge was taken. Going to the ANY node is forbidden afterwards (no any → any). */
+  usedAnyInput?: boolean;
 }
+
+const ANY_IDENTIFIER = formatIdentifier(SpecialFormats.ANY);
 interface CategoryChangeCost {
   from: CategoryType;
   to: CategoryType;
@@ -39,7 +58,8 @@ const DEFAULT_CATEGORY_CHANGE_COST: number = 0.6; // Default cost for category c
 const LOSSY_COST_MULTIPLIER: number = 1.4; // Cost multiplier for lossy conversions. Higher values will make the algorithm prefer lossless conversions more strongly.
 const HANDLER_PRIORITY_COST: number = 0.02; // Cost multiplier for handler priority. Higher values will make the algorithm prefer handlers with higher priority more strongly.
 const FORMAT_PRIORITY_COST: number = 0.05; // Cost multiplier for format priority. Higher values will make the algorithm prefer formats with higher priority more strongly.
-const ANY_INPUT_COST: number = 2; // Extra cost for edges created via supportAnyInput. Discourages generic "pack" conversions so the algorithm prefers more specific conversion paths (e.g. rename-then-convert over wrapping a file as-is).
+const ANY_OUTPUT_COST: number = 3; // Estimated cost from the ANY node to any other format. The real formats are only known after the step runs, so this is an optimistic guess that should lose to known conversion paths.
+const ANY_INPUT_COST: number = 2; // Extra cost for edges into handlers that accept SpecialFormats.ANY. Discourages generic "pack" conversions so the algorithm prefers more specific conversion paths (e.g. rename-then-convert over wrapping a file as-is).
 
 const LOG_FREQUENCY = 1000;
 const MAX_QUEUED_PATHS = 15_000_000;
@@ -56,6 +76,8 @@ export interface Edge {
   handler: string;
   cost: number;
   costs: CostEntry[];
+  /** Set on edges from a concrete format into a handler that accepts SpecialFormats.ANY. */
+  kind?: "anyInput";
 }
 
 export class TraversionGraph {
@@ -85,12 +107,16 @@ export class TraversionGraph {
   ];
   // Keeps track of path segments that have failed when attempted during the last run
   private temporaryDeadEnds: ConvertPathNode[][] = [];
+  // Index of the SpecialFormats.ANY node, or -1 if no handler outputs it
+  private anyIndex = -1;
 
   // lookup caches rebuilt on every init() call
   private nodeIndexByIdentifier = new Map<string, number>();
   private handlerByName = new Map<string, HandlerDefinition>();
   private formatPriorityByHandler = new Map<string, Map<string, number>>();
   private handlerPairs = new Map<string, Set<string>>();
+  private incomingEdges: number[][] = [];
+  private edgeCostCache = new Map<string, number[]>();
 
   public addCategoryChangeCost(
     from: CategoryType,
@@ -192,6 +218,7 @@ export class TraversionGraph {
     this.handlers = handlers;
     this.nodes.length = 0;
     this.edges.length = 0;
+    this.edgeCostCache.clear();
 
     // rebuild lookup caches
     this.nodeIndexByIdentifier.clear();
@@ -221,23 +248,23 @@ export class TraversionGraph {
       let fromIndices: Array<{ format: FileFormat; index: number }> = [];
       let toIndices: Array<{ format: FileFormat; index: number }> = [];
       handler.supportedFormats?.forEach((format) => {
-        const formatIdentifier = format.mime + `(${format.format})`;
-        let index = this.nodeIndexByIdentifier.get(formatIdentifier) ?? -1;
+        const identifier = formatIdentifier(format);
+        let index = this.nodeIndexByIdentifier.get(identifier) ?? -1;
         if (index === -1) {
           index = this.nodes.length;
           this.nodes.push({
-            identifier: formatIdentifier,
+            identifier,
             format: format,
             edges: [],
           });
-          this.nodeIndexByIdentifier.set(formatIdentifier, index);
+          this.nodeIndexByIdentifier.set(identifier, index);
         }
         if (format.from) fromIndices.push({ format, index });
         if (format.to) toIndices.push({ format, index });
       });
       fromIndices.forEach((from) => {
         toIndices.forEach((to) => {
-          if (from.index === to.index) return; // No self-loops
+          if (from.index === to.index && from.index === this.anyIndex) return; // No self-loops for special.ANY
           const costs = this.costFunction(from, to, strictCategories, handler.name, handlerIndex);
           this.edges.push({
             from: from,
@@ -252,20 +279,23 @@ export class TraversionGraph {
       handlerIndex++;
     });
 
-    // Add edges for handlers with supportAnyInput.
+    this.anyIndex = this.nodeIndexByIdentifier.get(ANY_IDENTIFIER) ?? -1;
+
+    // Add edges for handlers that accept SpecialFormats.ANY.
     // These handlers can accept any format as input, so we create edges
-    // from every known format node to their output formats.
+    // from every known format node to their output formats. Edges from the ANY node itself
+    // (passing on everything an ANY output produced) are regular edges created above.
     handlers.forEach((handler, hIndex) => {
-      if (!handler.supportAnyInput) return;
+      if (!handler.supportedFormats?.some((f) => f.from && f.mime === SpecialFormats.ANY.mime))
+        return;
       if (!handler.supportedFormats) return;
 
       // Collect output format node indices for this handler
       const toEntries: Array<{ format: FileFormat; index: number }> = [];
       for (const f of handler.supportedFormats) {
         if (!f.to) continue;
-        const id = f.mime + `(${f.format})`;
-        const idx = this.nodeIndexByIdentifier.get(id) ?? -1;
-        if (idx !== -1) toEntries.push({ format: f, index: idx });
+        const idx = this.nodeIndexByIdentifier.get(formatIdentifier(f)) ?? -1;
+        if (idx !== -1 && idx !== this.anyIndex) toEntries.push({ format: f, index: idx });
       }
 
       // pre-build edge key set to avoid O(edges) scan per (node, output) pair
@@ -279,6 +309,7 @@ export class TraversionGraph {
 
       // Create edges from every known format node to each output format
       this.nodes.forEach((fromNode, fromIndex) => {
+        if (fromIndex === this.anyIndex) return; // ANY is never converted from directly
         for (const to of toEntries) {
           if (fromIndex === to.index) continue;
           if (existingEdgeKeys.has(`${fromIndex}:${to.index}:${handler.name}`)) continue;
@@ -297,11 +328,15 @@ export class TraversionGraph {
             handler: handler.name,
             cost: sumCosts(costs),
             costs,
+            kind: "anyInput",
           });
           this.nodes[fromIndex].edges.push(this.edges.length - 1);
         }
       });
     });
+
+    this.incomingEdges = this.nodes.map(() => []);
+    this.edges.forEach((edge, index) => this.incomingEdges[edge.to.index].push(index));
 
     const endTime = performance.now();
     console.log(
@@ -345,7 +380,11 @@ export class TraversionGraph {
           } else addCategoryCost(fromCat, toCat, DEFAULT_CATEGORY_CHANGE_COST);
         }
       }
-    } else if (!fromCategories.some((c) => toCategories.includes(c))) {
+    } else if (
+      fromCategories.length &&
+      toCategories.length && // uncategorized formats (SpecialFormats.ANY) cost nothing here
+      !fromCategories.some((c) => toCategories.includes(c))
+    ) {
       let costs = this.categoryChangeCosts.filter(
         (c) =>
           fromCategories.includes(c.from) &&
@@ -372,8 +411,11 @@ export class TraversionGraph {
       cost: HANDLER_PRIORITY_COST * handlerIndex,
     });
 
-    // Add cost based on format priority
-    const formatPriority = this.formatPriorityByHandler.get(handler)?.get(to.format.mime) ?? 0;
+    // Add cost based on format priority. ANY is priced by ANY_OUTPUT_COST instead, wherever it is listed.
+    const formatPriority =
+      to.format.mime === SpecialFormats.ANY.mime
+        ? 0
+        : (this.formatPriorityByHandler.get(handler)?.get(to.format.mime) ?? 0);
     costs.push({
       reason: `Format priority (${formatPriority})`,
       cost: FORMAT_PRIORITY_COST * formatPriority,
@@ -412,6 +454,7 @@ export class TraversionGraph {
         handler: edge.handler,
         cost: edge.cost,
         costs: edge.costs.map((c) => ({ ...c })),
+        kind: edge.kind,
       })),
       categoryChangeCosts: this.categoryChangeCosts.map((c) => ({
         from: c.from,
@@ -449,44 +492,82 @@ export class TraversionGraph {
     this.listeners.forEach((l) => l(state, path));
   }
 
-  private calculateRemainingCosts(toIndex: number): number[] {
-    const incomingEdges: Edge[][] = this.nodes.map(() => []);
-    for (const edge of this.edges) incomingEdges[edge.to.index].push(edge);
-
+  /**
+   * Cheapest cost from (or, reversed, to) `startIndex` for every node.
+   * @param optimistic Assume the ANY node leads to every format. Otherwise only known edges count.
+   */
+  private calculateEdgeCosts(startIndex: number, reverse: boolean, optimistic = true): number[] {
+    const key = `${startIndex}:${reverse}:${optimistic}`;
+    const cached = this.edgeCostCache.get(key);
+    if (cached) return cached;
     const costs = this.nodes.map(() => Infinity);
-    costs[toIndex] = 0;
+    costs[startIndex] = 0;
     const queue = new PriorityQueue<{ index: number; cost: number }>(
       1000,
       (a, b) => a.cost - b.cost,
     );
-    queue.add({ index: toIndex, cost: 0 });
+    queue.add({ index: startIndex, cost: 0 });
+    // The ANY node is assumed to lead to every format at ANY_OUTPUT_COST.
+    if (optimistic && reverse && this.anyIndex !== -1 && this.anyIndex !== startIndex) {
+      costs[this.anyIndex] = ANY_OUTPUT_COST;
+      queue.add({ index: this.anyIndex, cost: ANY_OUTPUT_COST });
+    }
     while (queue.size() > 0) {
       const current = queue.poll()!;
       if (current.cost > costs[current.index]) continue;
-      for (const edge of incomingEdges[current.index]) {
+      if (optimistic && !reverse && current.index === this.anyIndex) {
+        const cost = current.cost + ANY_OUTPUT_COST;
+        costs.forEach((existing, next) => {
+          if (cost >= existing) return;
+          costs[next] = cost;
+          queue.add({ index: next, cost });
+        });
+        continue;
+      }
+      const edgeIndices = reverse
+        ? this.incomingEdges[current.index]
+        : this.nodes[current.index].edges;
+      for (const edgeIndex of edgeIndices) {
+        const edge = this.edges[edgeIndex];
+        const next = reverse ? edge.from.index : edge.to.index;
         const cost = current.cost + edge.cost;
-        if (cost >= costs[edge.from.index]) continue;
-        costs[edge.from.index] = cost;
-        queue.add({ index: edge.from.index, cost });
+        if (cost >= costs[next]) continue;
+        costs[next] = cost;
+        queue.add({ index: next, cost });
       }
     }
+    this.edgeCostCache.set(key, costs);
     return costs;
+  }
+
+  /**
+   * @param optimistic Count paths through the ANY node, whose real outputs are unknown until run.
+   */
+  public getFormatCosts(
+    format: FileFormat,
+    direction: "from" | "to" = "to",
+    optimistic = true,
+  ): Map<string, number> {
+    const index = this.nodeIndexByIdentifier.get(formatIdentifier(format));
+    if (index === undefined) return new Map();
+    const costs = this.calculateEdgeCosts(index, direction === "from", optimistic);
+    return new Map(
+      this.nodes.flatMap((node, i) =>
+        Number.isFinite(costs[i]) ? [[node.identifier, costs[i]] as const] : [],
+      ),
+    );
   }
 
   public async *searchPath(
     from: ConvertPathNode,
     to: ConvertPathNode,
-    simpleMode: boolean,
-    isCancelled?: () => boolean | Promise<boolean>,
-    debug?: (costs: (CostEntry & { step: number })[], total: number) => void,
+    { simpleMode = false, isCancelled, debug, requiredSettings = {} }: SearchPathOptions = {},
   ): AsyncGenerator<ConvertPathNode[]> {
     // A*: base edge costs estimate the remaining costs
-    const fromIdentifier = from.format.mime + `(${from.format.format})`;
-    const toIdentifier = to.format.mime + `(${to.format.format})`;
-    const fromIndex = this.nodeIndexByIdentifier.get(fromIdentifier) ?? -1;
-    const toIndex = this.nodeIndexByIdentifier.get(toIdentifier) ?? -1;
+    const fromIndex = this.nodeIndexByIdentifier.get(formatIdentifier(from.format)) ?? -1;
+    const toIndex = this.nodeIndexByIdentifier.get(formatIdentifier(to.format)) ?? -1;
     if (fromIndex === -1 || toIndex === -1) return []; // If either format is not in the graph, return empty array
-    const remainingCosts = this.calculateRemainingCosts(toIndex);
+    const remainingCosts = this.calculateEdgeCosts(toIndex, true);
     if (!Number.isFinite(remainingCosts[fromIndex])) return;
     const queue = new PriorityQueue<QueueNode>(
       1000,
@@ -498,6 +579,15 @@ export class TraversionGraph {
     );
     let iterations = 0;
     let pathsFound = 0;
+    const reportCosts = (node: QueueNode) => {
+      if (!debug) return;
+      const steps: CostEntry[][] = [];
+      for (let trace = node.trace; trace; trace = trace.previous) steps.push(trace.costs);
+      const costs = steps
+        .toReversed()
+        .flatMap((entries, i) => entries.map((entry) => ({ step: i + 1, ...entry })));
+      debug(costs, node.cost);
+    };
     while (queue.size() > 0) {
       // Awaiting a proxied callback lets the UI cancel even before a path is found.
       if (iterations % LOG_FREQUENCY === 0 && (await isCancelled?.())) return;
@@ -506,20 +596,28 @@ export class TraversionGraph {
       let current = queue.poll()!;
       // A failed conversion can invalidate paths already in the queue.
       if (!Number.isFinite(sumCosts(this.calculateAdaptiveCosts(current.path)))) continue;
-      if (current.index === toIndex) {
+      if (current.index === this.anyIndex && current.path.length > 1) {
+        // The rest of the path can only be planned once the real output formats are known.
+        // A search that starts at ANY (passing on extracted files) goes on through its edges.
+        console.log(
+          `Found open-ended path at iteration ${iterations} with cost ${current.cost.toFixed(3)}: ${current.path.map((p) => p.handler.name + "(" + p.format.mime + ")").join(" → ")}`,
+        );
+        reportCosts(current);
+        this.dispatchEvent("found", current.path);
+        yield current.path;
+        pathsFound++;
+        continue;
+      }
+      if (current.index === toIndex && current.path.length > 1) {
         // Return the path of handlers and formats to get from the input format to the output format
         const logString = `${iterations} with cost ${current.cost.toFixed(3)}: ${current.path.map((p) => p.handler.name + "(" + p.format.mime + ")").join(" → ")}`;
         const foundPathLast = current.path.at(-1);
-        if (simpleMode || !to.handler || to.handler.name === foundPathLast?.handler.name) {
+        if (
+          (simpleMode || !to.handler || to.handler.name === foundPathLast?.handler.name) &&
+          pathSupportsOptions(current.path, requiredSettings)
+        ) {
           console.log(`Found path at iteration ${logString}`);
-          if (debug) {
-            const steps: CostEntry[][] = [];
-            for (let trace = current.trace; trace; trace = trace.previous) steps.push(trace.costs);
-            const costs = steps
-              .toReversed()
-              .flatMap((entries, i) => entries.map((entry) => ({ step: i + 1, ...entry })));
-            debug(costs, current.cost);
-          }
+          reportCosts(current);
           this.dispatchEvent("found", current.path);
           yield current.path;
           pathsFound++;
@@ -533,14 +631,14 @@ export class TraversionGraph {
       this.nodes[current.index].edges.forEach((edgeIndex) => {
         let edge = this.edges[edgeIndex];
         if (!Number.isFinite(remainingCosts[edge.to.index])) return;
+        // dont reenter except if its the target
         if (
-          current.path.some(
-            (node) =>
-              node.format.mime === edge.to.format.mime &&
-              node.format.format === edge.to.format.format,
-          )
+          current.path.some((node) => sameFormat(node.format, edge.to.format)) &&
+          edge.to.index != toIndex
         )
           return;
+        // No any → any: an ANY input step followed by an ANY output would just undo itself.
+        if (edge.to.index === this.anyIndex && current.usedAnyInput) return;
         const handler = this.handlerByName.get(edge.handler);
         if (!handler) return; // If the handler for this edge is not found, skip it
 
@@ -549,7 +647,9 @@ export class TraversionGraph {
         if (!Number.isFinite(sumCosts(adaptiveCosts))) return;
         if (queue.size() >= MAX_QUEUED_PATHS) {
           queue.clear();
-          throw new Error("Conversion path search limit exceeded. Try a different output format.");
+          throw new Error(
+            "Could not find a path. This usually means the formats have nothing in common, or something failed while converting.",
+          );
         }
         queue.add({
           index: edge.to.index,
@@ -558,6 +658,7 @@ export class TraversionGraph {
             ? { previous: current.trace, costs: [...edge.costs, ...adaptiveCosts] }
             : undefined,
           path: path,
+          usedAnyInput: current.usedAnyInput || edge.kind === "anyInput",
         });
       });
       if (iterations % LOG_FREQUENCY === 0) {
@@ -574,10 +675,18 @@ export class TraversionGraph {
   public searchPathProxied(
     from: ConvertPathNode,
     to: ConvertPathNode,
-    simpleMode: boolean,
-    isCancelled?: () => boolean | Promise<boolean>,
+    // not perfect but works
+    options: Omit<SearchPathOptions, "isCancelled" | "debug"> = {},
+    cancelPort?: MessagePort,
   ) {
-    return comlink.proxy(this.searchPath(from, to, simpleMode, isCancelled));
+    let cancelled = false;
+    cancelPort?.addEventListener("message", ({ data }) => {
+      if (data === "abort") cancelled = true;
+    });
+    cancelPort?.start();
+    const isCancelled = () =>
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(cancelled), 0));
+    return comlink.proxy(this.searchPath(from, to, { ...options, isCancelled }));
   }
 
   private calculateAdaptiveCosts(path: ConvertPathNode[]): CostEntry[] {
@@ -586,8 +695,7 @@ export class TraversionGraph {
       for (let i = 0; i < deadEnd.length; i++) {
         if (
           path[i]?.handler.name === deadEnd[i].handler.name &&
-          path[i]?.format.mime === deadEnd[i].format.mime &&
-          path[i]?.format.format === deadEnd[i].format.format
+          sameFormat(path[i]?.format, deadEnd[i].format)
         )
           continue;
         isDeadEnd = false;

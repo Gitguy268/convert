@@ -1,8 +1,15 @@
+import "./polyfills.ts";
 import * as comlink from "comlink";
-import type { ConvertPathNode, FileData, HandlerDefinition } from "./FormatHandler";
-import { createRemoteContext, type IProgressStore } from "./ui/ProgressStore";
+import {
+  sameFormat,
+  type ConvertPathNode,
+  type FileData,
+  type HandlerDefinition,
+} from "./FormatHandler";
+import { SpecialFormats } from "./Formats";
+import { createPortProgressStore, createRemoteContext } from "./ui/ProgressStore";
 import { getHandler } from "./handlers/index.js";
-import type { ConversionSettings } from "./ConversionSettings.js";
+import { sanitizeOptions } from "./Settings";
 
 if (!("window" in globalThis)) {
   (globalThis as unknown as { window: typeof globalThis }).window = globalThis;
@@ -40,17 +47,19 @@ export class Converter {
     path: [ConvertPathNode, ConvertPathNode],
     inputFiles: FileData[],
     { currentStep, totalSteps }: { currentStep: number; totalSteps: number },
-    progressStore: IProgressStore,
-    abortPort: MessagePort,
-    settings?: ConversionSettings,
+    port: MessagePort,
   ): Promise<ConvertResult> {
     const controller = new AbortController();
-    abortPort.addEventListener("message", ({ data }) => {
+    port.addEventListener("message", ({ data }) => {
       if (data === "abort") controller.abort();
     });
-    abortPort.start();
+    port.start();
 
-    const ctx = createRemoteContext(progressStore, handlerDef.name, controller.signal, settings);
+    const ctx = createRemoteContext(
+      createPortProgressStore(port),
+      handlerDef.name,
+      controller.signal,
+    );
 
     try {
       if (!this.defs) throw new Error("Converter not ready.");
@@ -61,13 +70,26 @@ export class Converter {
         throw new Error(`Handler "${def.name}" doesn't support any formats.`);
 
       const inputFormat =
-        def.supportedFormats.find(
-          (c) => c.from && c.mime === path[0].format.mime && c.format === path[0].format.format,
-        ) || (def.supportAnyInput ? path[0].format : undefined);
+        def.supportedFormats.find((c) => c.from && sameFormat(c, path[0].format)) ??
+        (def.supportedFormats.some((c) => c.from && sameFormat(c, SpecialFormats.ANY))
+          ? path[0].format
+          : undefined);
 
       if (!inputFormat)
         throw new Error(
           `Handler "${def.name}" doesn't support the "${path[0].format.format}" format.`,
+        );
+
+      const outputFormat =
+        def.supportedFormats.find(
+          (c) => c.to && sameFormat(c, path[1].format) && c.internal === path[1].format.internal,
+        ) ?? path[1].format;
+      ctx.options = sanitizeOptions(outputFormat, path[1].options);
+      const dropped = Object.keys(path[1].options ?? {}).filter((key) => !(key in ctx.options));
+      if (dropped.length)
+        ctx.log(
+          `${def.name} can't apply ${dropped.join(", ")} when converting to ${outputFormat.format}, ignoring.`,
+          "warn",
         );
 
       const handler = await getHandler(def.name);
@@ -88,13 +110,18 @@ export class Converter {
 
       // no waiting for animation frames here: a tab in the background gets none, and the
       // conversion would stand still until the user came back to it
-      const outputFiles = await handler.doConvert(
-        inputFiles,
-        inputFormat,
-        path[1].format,
-        undefined,
-        ctx,
-      );
+      let outputFiles = await handler.doConvert(inputFiles, inputFormat, path[1].format, ctx);
+
+      // guess the folders
+      if (
+        outputFiles.length === inputFiles.length &&
+        inputFiles.some((f) => f.path) &&
+        !outputFiles.some((f) => f.path)
+      ) {
+        outputFiles = outputFiles.map((f, i) =>
+          inputFiles[i].path ? { ...f, path: inputFiles[i].path } : f,
+        );
+      }
 
       ctx.log(`Step ${currentStep}/${totalSteps} complete`);
       if (outputFiles.some((c) => !c.bytes.length)) throw "Output is empty.";
@@ -119,7 +146,7 @@ export class Converter {
         [...new Set([...inputFiles].map((file) => file.bytes.buffer))],
       );
     } finally {
-      abortPort.close();
+      port.close();
     }
   }
 }

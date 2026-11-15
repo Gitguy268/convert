@@ -147,7 +147,6 @@ export class faviconHandler implements FormatHandler {
     inputFiles: FileData[],
     _inputFormat: FileFormat,
     _outputFormat: FileFormat,
-    _args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     const outputFiles: FileData[] = [];
@@ -194,7 +193,6 @@ export class collageHandler implements FormatHandler {
     inputFiles: FileData[],
     _inputFormat: FileFormat,
     _outputFormat: FileFormat,
-    _args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     ctx?.progress("Reading the pictures...", 0);
@@ -249,7 +247,6 @@ export class frameHandler implements FormatHandler {
     inputFiles: FileData[],
     _inputFormat: FileFormat,
     _outputFormat: FileFormat,
-    _args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     const outputFiles: FileData[] = [];
@@ -314,7 +311,6 @@ export class halftoneHandler implements FormatHandler {
     inputFiles: FileData[],
     _inputFormat: FileFormat,
     _outputFormat: FileFormat,
-    _args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     const outputFiles: FileData[] = [];
@@ -433,7 +429,6 @@ export class asciiHtmlHandler implements FormatHandler {
     inputFiles: FileData[],
     _inputFormat: FileFormat,
     _outputFormat: FileFormat,
-    _args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     const outputFiles: FileData[] = [];

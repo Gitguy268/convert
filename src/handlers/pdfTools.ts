@@ -1,7 +1,7 @@
 import type { FileData, FileFormat, FormatHandler } from "../FormatHandler.ts";
 import { FormatDefinition } from "../FormatHandler.ts";
 import Formats, { Category } from "src/Formats.ts";
-import type { ConversionSettings } from "src/ConversionSettings.ts";
+import type { ConvertOptions } from "src/Settings.ts";
 import type { ConvertContext } from "src/ui/ProgressStore.ts";
 import { Document, Font, Image, PDFDocument } from "mupdf";
 import { changeExt } from "src/common/index.ts";
@@ -65,7 +65,7 @@ function openPdf(file: FileData, password?: string): PDFDocument {
  * The document is changed in place, not copied page by page into a new one, which would
  * lose its bookmarks, form fields and metadata.
  */
-function openEdited(file: FileData, settings: ConversionSettings): PDFDocument {
+function openEdited(file: FileData, settings: ConvertOptions): PDFDocument {
   const doc = openPdf(file, settings.password);
 
   if (settings.pages) doc.rearrangePages(parsePageRange(settings.pages, doc.countPages()));
@@ -75,7 +75,7 @@ function openEdited(file: FileData, settings: ConversionSettings): PDFDocument {
       // a page without its own rotation takes that of the page tree above it
       const current = page.getInheritable("Rotate");
       const degrees = current.isNumber() ? current.asNumber() : 0;
-      page.put("Rotate", (degrees + settings.rotate) % 360);
+      page.put("Rotate", (degrees + Number(settings.rotate)) % 360);
     }
   }
   return doc;
@@ -125,7 +125,7 @@ function pdfString(text: string) {
  * shortcut: positions use the unrotated page, so on a page with /Rotate the number sits on
  * a side edge. Turn the stamp with the page once rotated scans need numbering.
  */
-function stamp(doc: PDFDocument, { pageNumbers, watermark }: ConversionSettings) {
+function stamp(doc: PDFDocument, { pageNumbers, watermark }: ConvertOptions) {
   if (!pageNumbers && !watermark) return;
   const font = doc.addSimpleFont(new Font("Helvetica"));
   const faded = doc.newDictionary();
@@ -193,7 +193,7 @@ function stamp(doc: PDFDocument, { pageNumbers, watermark }: ConversionSettings)
 }
 
 /** Save options that lock the PDF with `protect`, or unlock it when it was opened with a password. */
-function lockOptions({ password, protect }: ConversionSettings) {
+function lockOptions({ password, protect }: ConvertOptions) {
   if (protect) return `,encrypt=aes-256,user-password=${protect},owner-password=${protect}`;
   return password ? ",decrypt" : "";
 }
@@ -212,7 +212,19 @@ export class compressPdfHandler implements FormatHandler {
   public readonly name = "compressPdf";
   // a single format means no edges in the conversion graph, so this only runs for PDF to PDF
   // (see `compressorsFor`)
-  public supportedFormats = [Formats.PDF.builder("pdf").fromTo()];
+  public supportedFormats = [
+    Formats.PDF.builder("pdf")
+      .options({
+        quality: true,
+        pages: true,
+        rotate: true,
+        password: true,
+        protect: true,
+        pageNumbers: true,
+        watermark: true,
+      })
+      .fromTo(),
+  ];
   public ready = false;
 
   async init() {
@@ -223,10 +235,9 @@ export class compressPdfHandler implements FormatHandler {
     inputFiles: FileData[],
     _inputFormat: FileFormat,
     _outputFormat: FileFormat,
-    _args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
-    const settings = ctx?.settings ?? {};
+    const settings = ctx?.options ?? {};
     return inputFiles.map((file) => {
       ctx?.throwIfAborted();
       let doc = openEdited(file, settings);
@@ -250,7 +261,7 @@ export class splitPdfHandler implements FormatHandler {
   public readonly name = "splitPdf";
   public supportedFormats = [
     Formats.PDF.builder("pdf").from(),
-    PDF_PAGES.builder("pdf").lossless().to(),
+    PDF_PAGES.builder("pdf").lossless().options({ pages: true, rotate: true, password: true }).to(),
   ];
   public ready = false;
 
@@ -262,13 +273,12 @@ export class splitPdfHandler implements FormatHandler {
     inputFiles: FileData[],
     _inputFormat: FileFormat,
     _outputFormat: FileFormat,
-    _args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     const outputFiles: FileData[] = [];
     for (const file of inputFiles) {
       ctx?.throwIfAborted();
-      const { pages, rotate, password } = ctx?.settings ?? {};
+      const { pages, rotate, password } = ctx?.options ?? {};
       const source = openEdited(file, { rotate, password });
       const count = source.countPages();
       const digits = String(count).length;
@@ -310,7 +320,6 @@ export class imagesToPdfHandler implements FormatHandler {
     inputFiles: FileData[],
     _inputFormat: FileFormat,
     _outputFormat: FileFormat,
-    _args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     const doc = new PDFDocument();

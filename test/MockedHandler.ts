@@ -9,7 +9,6 @@ export class MockedHandler implements FormatHandler {
   constructor(
     public readonly name: HandlerName,
     public supportedFormats?: FileFormat[],
-    public supportAnyInput?: boolean,
   ) {}
   public ready = false;
   init() {
@@ -20,7 +19,6 @@ export class MockedHandler implements FormatHandler {
     inputFiles: FileData[],
     inputFormat: FileFormat,
     outputFormat: FileFormat,
-    _args?: string[],
   ): Promise<FileData[]> {
     return Promise.resolve(inputFiles);
   }

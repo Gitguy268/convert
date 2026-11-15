@@ -2,7 +2,8 @@ Convert (fork)
 
 This repository is a fork of p2r3/convert (https://github.com/p2r3/convert),
 "Convert to it!", by p2r3 and its contributors. It is licensed under the GNU
-General Public License, version 2. See LICENSE.
+General Public License, version 2 or (at your option) any later version
+(GPL-2.0-or-later). See LICENSE.
 
 Changes in this fork are Copyright (c) 2026 Lucas Van De Weerd and are
 licensed under the same licence. CHANGELOG.md lists the changed and added
@@ -123,13 +124,10 @@ msgreader (Apache-2.0), HiraokaHyperTools
                                         https://github.com/HiraokaHyperTools/msgreader
 iconv-lite (MIT), decompressrtf (BSD-2-Clause)
   Reading Outlook messages.
-coi-serviceworker (MIT), Guido Zuidhof and contributors
-                                        https://github.com/gzuidhof/coi-serviceworker
-  The service worker that makes the page cross-origin isolated on hosts that
-  cannot send the headers for it.
-ffmpeg.wasm multithreaded core (GPL-2.0-or-later)
+ffmpeg.wasm core (GPL-2.0-or-later)
                                         https://github.com/ffmpegwasm/ffmpeg.wasm
-  H.264 encoding on several threads.
+  The FFmpeg of the subtitle and video tools. Conversions use upstream's own
+  FFmpeg build.
 audiocheck (MIT), Copyright (c) 2026 Lucas Van De Weerd
                                         https://github.com/Gitguy268/audiocheck
   "Check audio". src/handlers/audiocheck/ is a copy of its analysis and
@@ -199,7 +197,7 @@ and compatible with GPL version 3:
   Depth Anything V2 Small weights        Apache-2.0 (added by this fork)
   chevrotain, used by mermaid            Apache-2.0 (added by this fork)
 
-@ffmpeg/core and @ffmpeg/core-mt are GPL-2.0-or-later. The mediabunny packages are MPL-2.0, which
+@ffmpeg/core is GPL-2.0-or-later. The mediabunny packages are MPL-2.0, which
 can be combined with the GPL. The remaining dependencies are under MIT, ISC,
 BSD, OFL or similarly permissive licences.
 

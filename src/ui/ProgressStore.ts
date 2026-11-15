@@ -1,7 +1,8 @@
 import { signal } from "@preact/signals";
-import type { ConversionSettings } from "src/ConversionSettings";
+import type { ConvertOptions } from "../Settings.js";
 
-export type LogLevel = "log" | "error" | "debug" | "warn";
+const LOG_LEVELS = ["log", "error", "debug", "warn"] as const;
+export type LogLevel = (typeof LOG_LEVELS)[number];
 
 export interface LogEntry {
   timestamp: number;
@@ -15,8 +16,7 @@ export interface ConvertContext {
   log: (message: string, level?: LogLevel) => void;
   signal: AbortSignal;
   throwIfAborted: () => void;
-  /** User-chosen output settings. Only set on the last step of a conversion path. */
-  settings: ConversionSettings;
+  options: ConvertOptions;
 }
 
 export interface IProgressStore {
@@ -63,11 +63,30 @@ export const ProgressStore = {
   },
 };
 
+export function createPortProgressStore(port: MessagePort): IProgressStore {
+  return {
+    progress: (message, percent) =>
+      port.postMessage({ type: "progress", message: String(message), percent: Number(percent) }),
+    log: (message, level = "log") =>
+      port.postMessage({ type: "log", message: String(message), level }),
+  };
+}
+
+export function relayPortProgress(port: MessagePort, pluginName: string) {
+  port.addEventListener("message", ({ data }) => {
+    if (typeof data !== "object" || data === null || typeof data.message !== "string") return;
+    if (data.type === "progress" && typeof data.percent === "number")
+      ProgressStore.progress(data.message, data.percent);
+    else if (data.type === "log" && (LOG_LEVELS as readonly string[]).includes(data.level))
+      ProgressStore.log(data.message, data.level, pluginName, false);
+  });
+  port.start();
+}
+
 export function createRemoteContext(
   store: IProgressStore,
   pluginName: string,
   abort: AbortSignal,
-  settings: ConversionSettings = {},
 ): ConvertContext {
   let prevVal = 0;
 
@@ -82,7 +101,7 @@ export function createRemoteContext(
       console[level](`[${pluginName}] ${msg}`);
     },
     signal: abort,
-    settings,
+    options: {},
     throwIfAborted() {
       if (abort.aborted) throw new DOMException("Conversion cancelled", "AbortError");
     },

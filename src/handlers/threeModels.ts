@@ -3,14 +3,6 @@ import type { FileData, FileFormat, FormatHandler } from "../FormatHandler.ts";
 import { changeExt, encode } from "src/common/index.ts";
 import * as THREE from "three";
 
-/** A material that shows the colours a scan or a print file stores per vertex. */
-const mesh = (geometry: THREE.BufferGeometry) =>
-  new THREE.Mesh(
-    geometry,
-    new THREE.MeshStandardMaterial({ vertexColors: geometry.hasAttribute("color") }),
-  );
-const text = (bytes: ArrayBuffer) => new TextDecoder().decode(bytes);
-
 // each loader and exporter is fetched when its format is first used, not with the handler
 type Load = (bytes: ArrayBuffer, manager: THREE.LoadingManager) => Promise<THREE.Object3D>;
 
@@ -18,32 +10,6 @@ const LOADERS: Record<string, Load> = {
   async glb(bytes, manager) {
     const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
     return (await new GLTFLoader(manager).parseAsync(bytes, "")).scene;
-  },
-  async obj(bytes, manager) {
-    const { OBJLoader } = await import("three/addons/loaders/OBJLoader.js");
-    return new OBJLoader(manager).parse(text(bytes));
-  },
-  async stl(bytes, manager) {
-    const { STLLoader } = await import("three/addons/loaders/STLLoader.js");
-    return mesh(new STLLoader(manager).parse(bytes));
-  },
-  async ply(bytes, manager) {
-    const { PLYLoader } = await import("three/addons/loaders/PLYLoader.js");
-    return mesh(new PLYLoader(manager).parse(bytes));
-  },
-  async "3mf"(bytes, manager) {
-    const { ThreeMFLoader } = await import("three/addons/loaders/3MFLoader.js");
-    return new ThreeMFLoader(manager).parse(bytes);
-  },
-  async fbx(bytes, manager) {
-    const { FBXLoader } = await import("three/addons/loaders/FBXLoader.js");
-    return new FBXLoader(manager).parse(bytes, "");
-  },
-  async dae(bytes, manager) {
-    const { ColladaLoader } = await import("three/addons/loaders/ColladaLoader.js");
-    const collada = new ColladaLoader(manager).parse(text(bytes), "");
-    if (!collada) throw new Error("The Collada file has no scene.");
-    return collada.scene;
   },
   async "3ds"(bytes, manager) {
     const { TDSLoader } = await import("three/addons/loaders/TDSLoader.js");
@@ -65,20 +31,6 @@ const EXPORTERS: Record<string, (object: THREE.Object3D) => Promise<BlobPart>> =
   async gltf(object) {
     const { GLTFExporter } = await import("three/addons/exporters/GLTFExporter.js");
     return JSON.stringify(await new GLTFExporter().parseAsync(object, { binary: false }));
-  },
-  async obj(object) {
-    const { OBJExporter } = await import("three/addons/exporters/OBJExporter.js");
-    return new OBJExporter().parse(object);
-  },
-  async stl(object) {
-    const { STLExporter } = await import("three/addons/exporters/STLExporter.js");
-    return new STLExporter().parse(object, { binary: true }) as DataView<ArrayBuffer>;
-  },
-  async ply(object) {
-    const { PLYExporter } = await import("three/addons/exporters/PLYExporter.js");
-    const ply = new PLYExporter().parse(object, () => {}, { binary: true });
-    if (!ply) throw new Error("The model has no mesh to write as PLY.");
-    return ply;
   },
   async usdz(object) {
     const { USDZExporter } = await import("three/addons/exporters/USDZExporter.js");
@@ -102,7 +54,7 @@ function dropMissingTextures(object: THREE.Object3D) {
   });
 }
 
-/** Converts between 3D model formats with the loaders and exporters of three.js. */
+/** Converts USDZ, 3DS and glTF with the loaders and exporters of three.js. */
 class threeModelsHandler implements FormatHandler {
   public readonly name = "threeModels";
   public supportedFormats = [
@@ -110,13 +62,9 @@ class threeModelsHandler implements FormatHandler {
     Formats.GLTF.builder("gltf").to(),
     // a .gltf with its buffers in other files cannot be read from one file; one with them inline can
     Formats.GLTF.builder("glb").from(),
-    Formats.OBJ.builder("obj").fromTo(),
-    Formats.STL.builder("stl").fromTo(),
-    Formats.PLY.builder("ply").fromTo(),
+    // OBJ, STL, PLY, FBX, Collada and 3MF are the threejs handler's; this one adds the formats
+    // it lacks, with GLB as the bridge between the two
     Formats.USDZ.builder("usdz").fromTo(),
-    Formats.THREE_MF.builder("3mf").from(),
-    Formats.FBX.builder("fbx").from(),
-    Formats.DAE.builder("dae").from(),
     Formats.TDS.builder("3ds").from(),
   ];
   public ready = false;

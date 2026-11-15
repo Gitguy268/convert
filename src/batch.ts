@@ -1,9 +1,11 @@
 import type { FileData, FileFormat, HandlerDefinition } from "./FormatHandler.js";
-import { stripExt } from "./common/index.js";
-import { categoriesOf, sameFormat } from "./ConversionSettings.js";
+import { formatIdentifier, sameFormat } from "./FormatHandler.js";
+import { getExt, stripExt } from "./common/index.js";
 import { AUDIO_FILES, Category } from "./Formats.js";
-import normalizeMimeType from "./normalizeMimeType.js";
-import mime from "mime";
+import { detectFormatMatches } from "./detectFormat.js";
+
+const categoriesOf = (format: FileFormat) =>
+  Array.isArray(format.category) ? format.category : [format.category];
 
 type Option = [FileFormat, HandlerDefinition];
 type OptionsMap = Map<FileFormat, HandlerDefinition>;
@@ -66,89 +68,44 @@ export function keepSmaller(inputs: FileData[], outputs: FileData[]): FileData[]
   );
 }
 
-function expandVideoContainerMimes(candidates: string[]): string[] {
-  const out = new Set(candidates);
-  for (const c of candidates) {
-    if (c === "video/mp4" || c === "video/quicktime") {
-      out.add("video/mp4");
-      out.add("video/quicktime");
-    }
-  }
-  return [...out];
-}
-
-function getMimeCandidatesForFile(file: File): string[] {
-  const set = new Set<string>();
-  const raw = file.type?.trim();
-  if (raw) set.add(normalizeMimeType(raw));
-  const fromPath = mime.getType(file.name);
-  if (fromPath) set.add(normalizeMimeType(fromPath));
-  const extOnly = file.name.split(".").pop()?.toLowerCase();
-  if (extOnly) {
-    const fromExt = mime.getType(extOnly);
-    if (fromExt) set.add(normalizeMimeType(fromExt));
-  }
-  return expandVideoContainerMimes([...set]);
-}
-
-function formatMatchesUploadedFile(
-  format: FileFormat,
-  ext: string,
-  mimeCandidates: string[],
-): boolean {
-  if (mimeCandidates.some((m) => m === format.mime)) return true;
-  if (!ext) return false;
-  const e = ext.toLowerCase();
-  const fex = format.extension.toLowerCase();
-  const fmt = format.format.toLowerCase();
-  const intr = format.internal.toLowerCase();
-  return (
-    fex === e || fex.includes(e) || fmt === e || fmt.includes(e) || intr === e || intr.includes(e)
+/** Input formats a file could be, best match first (upstream's shared detection, src/detectFormat.ts). */
+export function getMatchingFromFormats(options: OptionsMap, files: File[]): OptionsMap {
+  if (files.length === 0) return new Map();
+  const fromFormats = [...options.keys()].filter((format) => format.from);
+  return new Map(
+    detectFormatMatches(files[0], fromFormats, { loose: true }).map(({ format }) => [
+      format,
+      options.get(format)!,
+    ]),
   );
 }
 
-export function getMatchingFromFormats(options: OptionsMap, files: File[]): OptionsMap {
-  if (files.length === 0) return new Map();
-
-  const file = files[0];
-  const mimeCandidates = getMimeCandidatesForFile(file);
-  const ext = file.name.split(".").pop()?.toLowerCase() || "";
-  const matched: OptionsMap = new Map();
-
-  for (const [format, handler] of options) {
-    if (!format.from) continue;
-    if (formatMatchesUploadedFile(format, ext, mimeCandidates)) {
-      matched.set(format, handler);
-    }
-  }
-
-  return matched;
-}
-
 function fileExt(file: File) {
-  return file.name.split(".").pop()?.toLowerCase() || "";
+  return getExt(file.name).toLowerCase();
 }
 
 /** Picks the input format when the file leaves no real doubt about it. */
 function autoFromOption(options: OptionsMap, file: File, simple: boolean): Option | null {
-  const matching = getMatchingFromFormats(options, [file]);
-  if (!matching.size) return null;
-  const first = matching.entries().next().value ?? null;
-  if (!simple) return matching.size === 1 ? first : null;
-
-  const mimeCandidates = getMimeCandidatesForFile(file);
-  const ext = fileExt(file);
-
-  const uniqueFormats = new Set<string>();
-  for (const [format, handler] of matching) {
-    uniqueFormats.add(`${format.mime}|${format.format}`);
-
-    // chances are, this format is exactly what the user wants
-    if (ext === format.extension && mimeCandidates.includes(format.mime)) {
-      return [format, handler];
-    }
-  }
+  const fromFormats = [...options.keys()].filter((format) => format.from);
+  const matches = detectFormatMatches(file, fromFormats, { loose: true });
+  if (!matches.length) return null;
+  const first: Option = [matches[0].format, options.get(matches[0].format)!];
+  if (!simple) return matches.length === 1 ? first : null;
+  // chances are, an exact extension + MIME match is what the user wants
+  if (matches[0].match === "exact") return first;
+  const uniqueFormats = new Set(matches.map(({ format }) => formatIdentifier(format)));
   return uniqueFormats.size === 1 ? first : null;
+}
+
+/**
+ * The last choice for each file extension, so that the next file of that kind starts from it.
+ * Lives as long as the page, like upstream's remembered selection.
+ */
+const remembered = new Map<string, { from: Option; to: Option }>();
+
+/** Remembers the choice made for files with this extension. */
+export function rememberTarget(file: File, target: Target) {
+  if (target.from && target.to) remembered.set(fileExt(file), { from: target.from, to: target.to });
 }
 
 /** Fills in a target for every selected file that `stored` doesn't cover yet. */
@@ -162,6 +119,11 @@ export function resolveTargets(
   for (const [key, file] of files) {
     if (stored[key]) {
       targets[key] = stored[key];
+      continue;
+    }
+    const last = remembered.get(fileExt(file));
+    if (last && options.has(last.from[0]) && options.has(last.to[0])) {
+      targets[key] = { ...last };
       continue;
     }
     const from = autoFromOption(options, file, simple);

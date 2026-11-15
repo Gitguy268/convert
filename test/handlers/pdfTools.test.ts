@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { ColorSpace, Document, Font, Image, Matrix, PDFDocument, Pixmap } from "mupdf";
-import type { ConversionSettings } from "../../src/ConversionSettings.ts";
+import type { ConvertOptions } from "../../src/Settings.ts";
 import type { FileData } from "../../src/FormatHandler.ts";
 import type { ConvertContext } from "../../src/ui/ProgressStore.ts";
 import {
@@ -10,11 +10,16 @@ import {
   splitPdfHandler,
 } from "../../src/handlers/pdfTools.ts";
 
-const ctx = (settings: ConversionSettings) =>
-  ({ settings, throwIfAborted() {}, progress() {}, log() {} }) as unknown as ConvertContext;
+const ctx = (settings: ConvertOptions) =>
+  ({
+    options: settings,
+    throwIfAborted() {},
+    progress() {},
+    log() {},
+  }) as unknown as ConvertContext;
 
 /** A PDF whose pages are 100, 200, 300... points wide, so that each can be told apart. */
-function pdfWithPages(count: number, rotate: 0 | 90 = 0, bookmarkPage?: number) {
+function pdfWithPages(count: number, rotate: "0" | 90 = 0, bookmarkPage?: number) {
   const doc = new PDFDocument();
   for (let i = 0; i < count; i++) {
     doc.insertPage(-1, doc.addPage([0, 0, 100 * (i + 1), 100], rotate, {}, ""));
@@ -31,14 +36,13 @@ const widths = (file: FileData) => {
   return Array.from({ length: doc.countPages() }, (_, i) => doc.loadPage(i).getBounds()[2]);
 };
 
-async function compress(bytes: Uint8Array, settings: ConversionSettings) {
+async function compress(bytes: Uint8Array, settings: ConvertOptions) {
   const handler = new compressPdfHandler();
   const [format] = handler.supportedFormats;
   const [output] = await handler.doConvert(
     [{ name: "doc.pdf", bytes }],
     format,
     format,
-    [],
     ctx(settings),
   );
   return output;
@@ -63,7 +67,7 @@ test("splitPdf writes one PDF per page, or per selected page", async () => {
   const [from, to] = handler.supportedFormats;
   const input = [{ name: "doc.pdf", bytes: pdfWithPages(3) }];
 
-  const all = await handler.doConvert(input, from, to, [], ctx({}));
+  const all = await handler.doConvert(input, from, to, ctx({}));
   expect(all.map((file) => file.name)).toEqual([
     "doc-page-1.pdf",
     "doc-page-2.pdf",
@@ -72,7 +76,7 @@ test("splitPdf writes one PDF per page, or per selected page", async () => {
   expect(all.map(widths)).toEqual([[100], [200], [300]]);
 
   // named after the page each one was in the original
-  const some = await handler.doConvert(input, from, to, [], ctx({ pages: "3,1" }));
+  const some = await handler.doConvert(input, from, to, ctx({ pages: "3,1" }));
   expect(some.map((file) => file.name)).toEqual(["doc-page-3.pdf", "doc-page-1.pdf"]);
   expect(some.map(widths)).toEqual([[300], [100]]);
 });
@@ -91,16 +95,16 @@ test("compressPdf keeps only the selected pages", async () => {
 const rotation = (file: FileData) => open(file).findPage(0).getInheritable("Rotate").asNumber();
 
 test("rotation is added to the rotation a page already has", async () => {
-  expect(rotation(await compress(pdfWithPages(1), { rotate: 90 }))).toBe(90);
-  expect(rotation(await compress(pdfWithPages(1, 90), { rotate: 90 }))).toBe(180);
-  expect(rotation(await compress(pdfWithPages(1, 90), { rotate: 270 }))).toBe(0);
+  expect(rotation(await compress(pdfWithPages(1), { rotate: "90" }))).toBe(90);
+  expect(rotation(await compress(pdfWithPages(1, 90), { rotate: "90" }))).toBe(180);
+  expect(rotation(await compress(pdfWithPages(1, 90), { rotate: "270" }))).toBe(0);
 });
 
 test("bookmarks survive a rotation and a page selection", async () => {
   const input = pdfWithPages(3, 0, 2);
   expect(open({ name: "", bytes: input }).loadOutline()).toHaveLength(1);
 
-  for (const settings of [{ rotate: 90 }, { pages: "2-3" }]) {
+  for (const settings of [{ rotate: "90" }, { pages: "2-3" }]) {
     const outline = open(await compress(input, settings)).loadOutline();
     expect(outline?.map((item) => item.title)).toEqual(["Chapter"]);
   }
@@ -175,7 +179,7 @@ test("splitPdf opens a protected PDF with its password", async () => {
   const locked = await compress(pdfWithPages(2), { protect: "pw" });
   const handler = new splitPdfHandler();
   const [from, to] = handler.supportedFormats;
-  const pages = await handler.doConvert([locked], from, to, [], ctx({ password: "pw" }));
+  const pages = await handler.doConvert([locked], from, to, ctx({ password: "pw" }));
   expect(pages).toHaveLength(2);
 });
 
@@ -214,7 +218,7 @@ function png(width: number) {
 test("imagesToPdf puts each image on a page of its own size", async () => {
   const handler = new imagesToPdfHandler();
   const [from, , to] = handler.supportedFormats;
-  const [output] = await handler.doConvert([png(96), png(192)], from, to, [], ctx({}));
+  const [output] = await handler.doConvert([png(96), png(192)], from, to, ctx({}));
   expect(output.name).toBe("96.pdf");
   // 96 pixels at 96 dpi are an inch, 72 points
   expect(widths(output)).toEqual([72, 144]);

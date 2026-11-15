@@ -10,20 +10,12 @@ import {
   type ConversionOptionsMap,
 } from "src/main";
 import { Mode, ModeEnum } from "src/ui/ModeStore";
-import type { FileData } from "src/FormatHandler";
-import {
-  altersContent,
-  applicableSettings,
-  compressorsFor,
-  COMPRESS_DEFAULTS,
-  sameFormat,
-  settingsFor,
-  SETTINGS_HANDLERS,
-  type SettingKey,
-} from "src/ConversionSettings";
+import { formatIdentifier, sameFormat, type FileData, type FileFormat } from "src/FormatHandler";
+import { altersContent, compressorsFor, COMPRESS_DEFAULTS, tidyEdits } from "src/edits";
 import {
   getMatchingFromFormats,
   groupByTarget,
+  rememberTarget,
   resolveTargets,
   siblingKeys,
   toolsFor,
@@ -32,6 +24,7 @@ import {
   type TargetGroup,
 } from "src/batch";
 import { stripExt } from "src/common";
+import { filePath } from "src/common/path.ts";
 
 import ConversionHeader from "src/ui/components/Conversion/ConversionHeader";
 import FormatExplorer from "src/ui/components/Conversion/FormatExplorer";
@@ -58,20 +51,22 @@ import {
   Plus,
   ScanText,
   Scissors,
-  SlidersHorizontal,
 } from "lucide-preact";
 import Chip from "src/ui/components/Chip";
 import { PopupData } from "src/ui";
-import { openPopup } from "src/ui/PopupStore";
+import { openPopup, popupOpen } from "src/ui/PopupStore";
 import FileInfoBadge, { formatFileSize } from "src/ui/components/FileInfo";
 import AudioReport, { readSummaries } from "src/ui/components/AudioReport";
 import { ConversionInProgress, CurrentPage, Pages } from "src/ui/AppState";
 import { ProgressStore, ROUTE_FAILED } from "src/ui/ProgressStore";
 import StyledButton, { ButtonVariant } from "src/ui/components/StyledButton";
-import ConversionSettingsForm, {
-  Settings,
+import SettingsPanel from "src/ui/components/Conversion/SettingsPanel";
+import {
+  SettingsPanelOpen,
   ZipPassword,
-} from "src/ui/components/ConversionSettings";
+  applicableSettings,
+  availableSettings,
+} from "src/ui/ConversionSettingsStore";
 
 type ConversionStep = "select-from" | "select-to" | "converting";
 
@@ -117,7 +112,7 @@ function countAvailableFormats(
       continue;
     }
 
-    const dedupeKey = `${format.mime}|${format.format}`;
+    const dedupeKey = formatIdentifier(format);
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
     count += 1;
@@ -148,8 +143,8 @@ async function downloadAsZip(files: FileData[], name: string, password: string) 
     new BlobWriter("application/zip"),
     password ? { password, encryptionStrength: 3 } : {},
   );
-  // zip.js refuses a second entry with the same name
-  const names = uniqueNames(files.map((file) => file.name));
+  // zip.js refuses a second entry with the same name; folders of an extracted archive stay
+  const names = uniqueNames(files.map((file) => filePath(file)));
   for (const [i, file] of files.entries()) {
     await writer.add(names[i], new Uint8ArrayReader(file.bytes));
   }
@@ -166,7 +161,25 @@ function removeFile(key: string) {
   if (Object.keys(rest).length === 0) CurrentPage.value = Pages.Upload;
 }
 
+/**
+ * The settings an output format takes. In simple mode a format stands for every handler's
+ * version of it, so only the settings they share by name are offered (as upstream does).
+ */
+function specsFor(options: ConversionOptionsMap, formats: FileFormat[], advanced: boolean) {
+  if (advanced) return availableSettings(formats);
+  const ids = new Set(formats.map(formatIdentifier));
+  return availableSettings(
+    [...options.keys()].filter((f) => f.to && ids.has(formatIdentifier(f))),
+    true,
+  );
+}
+
 export default function Conversion() {
+  const actionRef = useRef<HTMLButtonElement>(null);
+  const filesRef = useRef<HTMLDivElement>(null);
+  const actionBarRef = useRef<HTMLDivElement>(null);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+  const previousStep = useRef<ConversionStep | null>(null);
   const allOptions = getConversionOptions();
   const entries = useMemo(
     () => Object.entries(SelectedFiles.value) as [string, File][],
@@ -194,7 +207,8 @@ export default function Conversion() {
   const matchingFromSet = useMemo(() => new Set([...matchingFrom].map(([f]) => f)), [matchingFrom]);
 
   const [step, setStep] = useState<ConversionStep>(fromOption ? "select-to" : "select-from");
-  const [showAll, setShowAll] = useState(false);
+  // with no file at all, the page is for browsing the formats
+  const [showAll, setShowAll] = useState(entries.length === 0);
   const [applyToAll, setApplyToAll] = useState(true);
   const [isConverting, setIsConverting] = useState(false);
   const [converting, setConverting] = useState<TargetGroup<{ file: File }> | null>(null);
@@ -204,6 +218,25 @@ export default function Conversion() {
     setStep(fromOption ? "select-to" : "select-from");
     setShowAll(false);
   }, [activeKey]);
+
+  // the next file of the same kind starts from this choice
+  useEffect(() => {
+    for (const [key, file] of entries) if (targets[key]) rememberTarget(file, targets[key]);
+  }, [targets]);
+
+  useEffect(() => {
+    if (previousStep.current === "converting" && step !== "converting" && !popupOpen.peek()) {
+      actionRef.current?.focus();
+    }
+    previousStep.current = step;
+  }, [step]);
+
+  const toFormats = [...new Set(Object.values(targets).flatMap((t) => (t.to ? [t.to[0]] : [])))];
+  const settingSpecs = useMemo(
+    () => specsFor(allOptions, toFormats, isAdvanced),
+    [allOptions, toFormats.map(formatIdentifier).join(), isAdvanced],
+  );
+  const settings = applicableSettings(settingSpecs);
 
   const toSiblings = siblingKeys(entries, targets, activeKey, "to");
 
@@ -241,7 +274,8 @@ export default function Conversion() {
   };
 
   const compressors = fromOption ? compressorsFor(fromOption[0], window.handlerDefs) : [];
-  const allReady = entries.every(([key]) => targets[key].from && targets[key].to);
+  const allReady =
+    entries.length > 0 && entries.every(([key]) => targets[key].from && targets[key].to);
 
   const handleConvert = async () => {
     if (!allReady) return;
@@ -282,19 +316,17 @@ export default function Conversion() {
           continue;
         }
 
-        const settings = settingsFor(
-          Settings.value,
-          toFormat,
-          compress ? COMPRESS_DEFAULTS : {},
-          fromFormat,
-        );
+        // the settings this group's output takes, plus a default quality when compressing
+        const groupSpecs = specsFor(allOptions, [toFormat], isAdvanced);
+        const chosen = applicableSettings(groupSpecs, settings);
+        const defaults = compress ? applicableSettings(groupSpecs, COMPRESS_DEFAULTS) : {};
+        const groupSettings = tidyEdits({ ...defaults, ...chosen }, chosen);
         const logStart = ProgressStore.logs.value.length;
         const output = await window.tryConvertByTraversing(
           inputs,
           { handler: fromHandler, format: fromFormat },
           { handler: toHandler, format: toFormat },
-          abortController.signal,
-          settings,
+          { abort: abortController.signal, settings: groupSettings },
         );
 
         if (!output) {
@@ -321,15 +353,17 @@ export default function Conversion() {
           const saved = 1 - outputSize / inputSize;
           const sizes = `${formatFileSize(inputSize)} → ${formatFileSize(outputSize)}`;
           if (saved > 0) line = `${label}: ${Math.round(saved * 100)}% smaller (${sizes}).`;
-          else if (altersContent(settings)) line = `${label}: done (${sizes}).`;
+          else if (altersContent(groupSettings)) line = `${label}: done (${sizes}).`;
           else line = `${label}: could not be made smaller, original kept.`;
-          if (settings.protect) line += " Protected with a password.";
-          else if (settings.password) line += " Unlocked: it opens without a password now.";
+          if (groupSettings.protect) line += " Protected with a password.";
+          else if (groupSettings.password) line += " Unlocked: it opens without a password now.";
         }
         // a setting that silently did nothing is worse than no setting, above all "remove metadata"
-        const lastHandler = output.path.at(-1)?.handler.name ?? "";
-        if (Object.keys(settings).length && !SETTINGS_HANDLERS.has(lastHandler)) {
-          line += ` The output settings were not applied: ${lastHandler} does not support them.`;
+        const applied = new Set(output.path.flatMap((node) => Object.keys(node.options ?? {})));
+        const skipped = Object.keys(groupSettings).filter((key) => !applied.has(key));
+        if (skipped.length) {
+          const names = skipped.map((key) => settingSpecs.get(key)?.label ?? key);
+          line += ` Not applied, no step of this route supports it: ${names.join(", ")}.`;
         }
         summary.push(line);
       }
@@ -340,7 +374,7 @@ export default function Conversion() {
           const zipName = `${stripExt(entries[0][1].name)}-converted.zip`;
           await downloadAsZip(outputs, zipName, password);
         } else if (outputs.length === 1) {
-          downloadFile(outputs[0].bytes, outputs[0].name, outputMime);
+          downloadFile(outputs[0].bytes, filePath(outputs[0]).replaceAll("/", "_"), outputMime);
         }
       };
       // a report is read here first, and saved only when asked for
@@ -363,7 +397,7 @@ export default function Conversion() {
           </>
         ),
       };
-      openPopup();
+      openPopup(() => actionRef.current);
     } catch (e) {
       console.error(e);
       if (e instanceof Error && e.name === "AbortError") {
@@ -375,7 +409,7 @@ export default function Conversion() {
           dismissible: true,
           buttonText: "OK",
         };
-        openPopup();
+        openPopup(() => actionRef.current);
       }
     } finally {
       setIsConverting(false);
@@ -398,23 +432,6 @@ export default function Conversion() {
     if (addFileRef.current) addFileRef.current.value = "";
   };
 
-  const settingKeys = [
-    ...new Set(
-      Object.values(targets).flatMap<SettingKey>((t) =>
-        t.to ? applicableSettings(t.to[0], t.from?.[0]) : [],
-      ),
-    ),
-  ];
-
-  const handleSettingsClick = () => {
-    PopupData.value = {
-      dismissible: true,
-      buttonText: "Done",
-      contents: <ConversionSettingsForm keys={settingKeys} />,
-    };
-    openPopup();
-  };
-
   const tools =
     step === "select-to" && fromOption
       ? toolsFor(fromOption[0], toSiblings.length + 1, "gpu" in navigator).flatMap((id) => {
@@ -428,7 +445,11 @@ export default function Conversion() {
 
   return (
     <div className="conversion-body">
-      <ConversionHeader logoDisabled={step === "converting"} />
+      <ConversionHeader
+        logoDisabled={step === "converting"}
+        settingsCount={Object.keys(settings).length}
+        settingsDisabled={step === "converting"}
+      />
 
       <main className="conversion-main">
         {step === "converting" ? (
@@ -440,8 +461,19 @@ export default function Conversion() {
           />
         ) : (
           <FormatExplorer
+            searchScopeRef={actionBarRef}
             conversionOptions={allOptions}
             matchingFrom={matchingFromSet}
+            onBack={handleBack}
+            onAdvance={(option) => {
+              if (step === "select-from") {
+                handleFromSelect(option);
+                setStep("select-to");
+              } else {
+                handleToSelect(option);
+                requestAnimationFrame(() => actionRef.current?.focus());
+              }
+            }}
             onSelect={step === "select-from" ? handleFromSelect : handleToSelect}
             direction={step === "select-from" ? "from" : "to"}
             fromOption={fromOption}
@@ -473,6 +505,12 @@ export default function Conversion() {
             }
           />
         )}
+        {SettingsPanelOpen.value && step !== "converting" && (
+          <SettingsPanel
+            specs={settingSpecs}
+            formatName={toFormats.map((f) => f.format.toUpperCase()).join(", ") || undefined}
+          />
+        )}
       </main>
 
       {step !== "converting" &&
@@ -480,8 +518,8 @@ export default function Conversion() {
         h(
           "dispersive-glass",
           { class: "conversion-dock", refraction: true, "refraction-scale": 28 },
-          <div className="conversion-action-bar">
-            <div className="conversion-action-files">
+          <div className="conversion-action-bar" ref={actionBarRef}>
+            <div className="conversion-action-files" ref={filesRef}>
               {entries.map(([key, file]) => (
                 <FileInfoBadge
                   key={key}
@@ -489,7 +527,21 @@ export default function Conversion() {
                   fileSize={file.size}
                   extension={file.name.split(".").pop()}
                   mimeType={file.type}
-                  onRemove={() => removeFile(key)}
+                  onRemove={() => {
+                    // badges render in SelectedFiles order, so the key's index matches the DOM
+                    const buttons = [
+                      ...(filesRef.current?.querySelectorAll<HTMLButtonElement>(
+                        ".file-info-remove",
+                      ) ?? []),
+                    ];
+                    const index = Object.keys(SelectedFiles.value).indexOf(key);
+                    const next = buttons[index + 1] ?? buttons[index - 1];
+                    removeFile(key);
+                    requestAnimationFrame(() => {
+                      if (next?.isConnected) next.focus();
+                      else addButtonRef.current?.focus();
+                    });
+                  }}
                   active={multiple && key === activeKey}
                   target={
                     multiple ? (targets[key]?.to?.[0].format.toUpperCase() ?? "?") : undefined
@@ -497,28 +549,16 @@ export default function Conversion() {
                   onClick={multiple ? () => setChosenKey(key) : undefined}
                 />
               ))}
-              <div
+              <button
+                ref={addButtonRef}
+                type="button"
                 className="file-info-badge file-info-add"
                 onClick={handleAddClick}
-                role="button"
-                tabIndex={0}
                 aria-label="Add more files"
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter" && e.key !== " ") return;
-                  e.preventDefault();
-                  addFileRef.current?.click();
-                }}
               >
-                <input
-                  ref={addFileRef}
-                  type="file"
-                  multiple
-                  hidden
-                  onClick={(ev) => ev.stopPropagation()}
-                  onChange={handleAddChange}
-                />
                 <Plus size={16} />
-              </div>
+              </button>
+              <input ref={addFileRef} type="file" multiple hidden onChange={handleAddChange} />
             </div>
             {step === "select-to" && toSiblings.length > 0 && (
               <label
@@ -543,18 +583,14 @@ export default function Conversion() {
               </StyledButton>
             )}
             {step === "select-to" && (
-              <StyledButton onClick={handleSettingsClick}>
-                <SlidersHorizontal size={16} />
-                Settings
-              </StyledButton>
-            )}
-            {step === "select-to" && (
               <StyledButton onClick={handleBack}>
                 <ArrowLeft size={16} />
                 Back
               </StyledButton>
             )}
             <StyledButton
+              buttonRef={actionRef}
+              className="conversion-primary-action"
               variant={ButtonVariant.Primary}
               disabled={!canProceed}
               title={

@@ -75,7 +75,6 @@ class upscaleHandler implements FormatHandler {
     inputFiles: FileData[],
     _inputFormat: FileFormat,
     outputFormat: FileFormat,
-    _args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     const { canvas, upscaler, check } = await createUpscaler(outputFormat.internal);
@@ -128,7 +127,6 @@ export class upscaleVideoHandler implements FormatHandler {
     inputFiles: FileData[],
     _inputFormat: FileFormat,
     outputFormat: FileFormat,
-    _args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     const mb = await import("mediabunny");

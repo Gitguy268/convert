@@ -19,3 +19,7 @@ The converter runs in the browser, or in the Electron shell for the desktop buil
 ## Supported versions
 
 Only the latest version on the `master` branch is supported.
+
+## Problems that also affect upstream
+
+This is a fork of [p2r3/convert](https://github.com/p2r3/convert). If the problem is in code that came from there, please also tell its maintainers, as their [security policy](https://github.com/p2r3/convert/blob/master/SECURITY.md) asks.

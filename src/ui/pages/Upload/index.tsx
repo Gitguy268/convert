@@ -1,16 +1,33 @@
-import { useRef } from "preact/hooks";
-import { LoadingToolsText } from "src/ui/AppState";
+import useFirstTabTarget from "src/ui/scripts/useFirstTabTarget";
+import { useEffect, useRef } from "preact/hooks";
+import { CurrentPage, LoadingToolsText, Pages } from "src/ui/AppState";
 import { goToUploadHome, selectFiles } from "src/main";
-import { Upload } from "lucide-preact";
+import { Files, Upload } from "lucide-preact";
+import tippy from "tippy.js";
 
 import Logo from "src/ui/components/Logo";
 import HelpButton from "src/ui/components/HelpButton";
+import SettingsButton from "src/ui/components/SettingsButton";
 import Footer from "src/ui/components/Footer";
+import StyledButton, { ButtonVariant } from "src/ui/components/StyledButton";
 
 import "./index.css";
 
 export default function UploadPage() {
+  const uploadRef = useRef<HTMLDivElement>(null);
+  useFirstTabTarget(uploadRef);
   const fileRef = useRef<HTMLInputElement>(null);
+  const formatsRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!formatsRef.current) return;
+    const instance = tippy(formatsRef.current, {
+      content: "View supported formats",
+      placement: "bottom",
+      delay: [300, 0],
+    });
+    return () => instance.destroy();
+  }, []);
 
   const handleClick = (ev: MouseEvent) => {
     ev.preventDefault();
@@ -44,6 +61,9 @@ export default function UploadPage() {
         </div>
 
         <div
+          ref={uploadRef}
+          aria-label="Select files to convert"
+          aria-disabled={!formatsReady}
           className={`upload-dropzone ${!formatsReady ? "upload-dropzone--pending" : ""}`}
           onClick={handleClick}
           role="button"
@@ -79,7 +99,20 @@ export default function UploadPage() {
         </div>
 
         <div className="upload-card-actions">
+          <SettingsButton />
           <HelpButton />
+          <StyledButton
+            buttonRef={formatsRef}
+            variant={ButtonVariant.Icon}
+            ariaLabel="View supported formats"
+            onClick={() => {
+              if (!formatsReady) return;
+              CurrentPage.value = Pages.Conversion;
+            }}
+            disabled={!formatsReady}
+          >
+            <Files size={18} aria-hidden="true" />
+          </StyledButton>
         </div>
       </div>
 

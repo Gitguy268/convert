@@ -2,7 +2,7 @@ import type { FileData, FileFormat, FormatHandler } from "../FormatHandler.ts";
 import { FormatDefinition } from "../FormatHandler.ts";
 import Formats, { AUDIO_FILES, Category } from "src/Formats.ts";
 import type { ConvertContext } from "src/ui/ProgressStore.ts";
-import { categoriesOf } from "src/ConversionSettings.ts";
+import { categoriesOf } from "src/edits.ts";
 import { changeExt, encode } from "src/common/index.ts";
 import { loadFFmpeg, readOutput, run, VIDEO_FILES } from "./videoTools.ts";
 import { initializeImageMagick, MagickImage, MagickReadSettings } from "@imagemagick/magick-wasm";
@@ -184,7 +184,6 @@ class metadataHandler implements FormatHandler {
     inputFiles: FileData[],
     inputFormat: FileFormat,
     _outputFormat: FileFormat,
-    _args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     const categories = categoriesOf(inputFormat);

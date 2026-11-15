@@ -19,7 +19,9 @@ bun run build:add word-parser https://github.com/p2r3/envelope/archive/2d8bc87d9
 bun run build:add bash https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz
 ```
 
-To assemble the `built` folder, run `bun run build:assemble --all`. However, this is usually done for you when you run `bun run build` or `bun run dev`.
+To assemble the `built` folder, run `bun run build:assemble`. However, this is usually done for you when you run `bun run build` or `bun run dev`.
+
+Requirements marked `optional: true` (like clang, which is ~137 MB) are skipped unless you name them or pass `--all`. `bun run build` passes `--all`; `bun run dev` doesn't, so to work on one, assemble it by name, like `bun run build:assemble clang`.
 
 ## Advanced usage
 
@@ -72,7 +74,7 @@ The script should produce the output in the `process.env.OUT_DIR` folder. You ca
 
 ### Prebuild script
 
-A **prebuild** script is a shell script that runs on the sources and generates the output (usually a binary) in a docker container deterministically, after which the output is checked into the git repo under `prebuilt/*.tar.gz`.
+A **prebuild** script is a shell script that runs on the sources and generates the output (usually a binary) in a docker container deterministically, after which the output is uploaded to the `prebuilts` GitHub release and git only tracks a small pointer to it under `prebuilt/*.json`.
 
 ```ts
 {
@@ -80,8 +82,7 @@ A **prebuild** script is a shell script that runs on the sources and generates t
   url: "https://git.kernel.org/torvalds/t/linux-7.3-rc5.tar.gz",
   hash: ["sha256", "9273b88b67973cc69e54d748ab1b749399d6d07695f1c37d0c59f88b4106074f"],
   prebuild: "build.sh", // still relative to `recipe/<name>` that one didnt change
-  image: "emscripten/emsdk:6.0.10@sha256:e077d54e2b8970575ebc4f185ac1de0b95c05f2b266134d4ba27449af7aebf65",
-  // should be pinned to a sha256
+  toolchains: ["emscripten"], // optional, see below
 },
 ```
 
@@ -89,11 +90,11 @@ The source is again, optional. The script looks something like this:
 
 ```sh
 # build.sh
-emmake make -j"$(nproc)" # this takes a lotta time!
+emmake make $JOBS # this takes a lotta time!
 cp arch/wasm/boot/bzImage $OUT_DIR
 ```
 
-The script should produce the output in the `$OUT_DIR` folder. You can access the subrecipe folder in `/recipe`. Once again, the working directory is the extracted source from the requirement.
+The script should produce the output in the `$OUT_DIR` folder. It starts in `$SOURCE_DIR`, the extracted source from the requirement, and can access the subrecipe folder in `$RECIPE_DIR`.
 
 Prebuilt artifacts require building manually:
 
@@ -101,7 +102,44 @@ Prebuilt artifacts require building manually:
 bun run build:prebuild <name or --all>
 ```
 
-The resulting `prebuilt/name-<hash>.tar.gz` file needs to be comitted into git.
+Then commit `prebuilt/` and upload the build. This needs `gh` logged in, and asks where to upload if you can't push to this repo:
+
+```bash
+bun run build:upload
+```
+
+Maintainers take over prebuilts from a contributor's PR with:
+
+```bash
+gh pr checkout <number>
+bun run build:upload --adopt
+```
+
+## Toolchains
+
+Compilers and build tools shared between recipes live in `recipe/toolchains/toolchains.config.ts`. They're plain requirements (usually just a pinned binary release), plus a `version` and an optional `toolchains` list for the toolchains they need themselves.
+
+```ts
+// recipe/toolchains/toolchains.config.ts
+{
+  name: "meson",
+  version: "1.12.1-1",
+  url: "https://github.com/mesonbuild/meson/releases/download/1.12.1/meson-1.12.1.tar.gz",
+  hash: ["sha256", "ab0a6ca09f8ef70c564c8241fb5a23957886a0b53fb58412b5e07eaf07dba743"],
+  toolchains: ["ninja"],
+},
+```
+
+If your change may make older builds produce different output, bump `version`.
+
+A prebuild with `toolchains: ["meson"]` gets meson and ninja mounted read-only under `$TOOLCHAINS_DIR/<name>`, and their `bin` folder (or the toolchain folder itself) put into `PATH`. If that's not enough, add `recipe/toolchains/<name>/setup.sh`. It gets sourced before the prebuild script, with the toolchain's folder in `$TOOLCHAIN` and a writable `$TOOLCHAIN_BIN` folder that is in `PATH`:
+
+```sh
+# recipe/toolchains/meson/setup.sh
+ln -s "$TOOLCHAIN/meson.py" "$TOOLCHAIN_BIN/meson"
+```
+
+Functions defined in a setup script can be used by the prebuild script.
 
 ## Subrecipes
 
@@ -114,7 +152,7 @@ If your prebuild or assemble script requires multiple source urls, you can add a
   url: "...",
   hash: ["sha256", "..."],
   prebuild: "build.sh",
-  image: "..."
+  toolchains: ["emscripten"],
 },
 ```
 
@@ -133,16 +171,16 @@ export default [
 ] satisfies RequirementsConfig;
 ```
 
-Then your assemble or prebuild script can use it inside of `$REQUIREMENTS_DIR`, which is read only:
+Then your assemble or prebuild script can use it inside of `$REQUIREMENTS_DIR`. Assemble scripts shouldn't modify it, but in prebuild scripts it's fine.
 
 ```sh
 # build.sh
-cp -r "$REQUIREMENTS_DIR/bash" ./bash
-cd bash
-# lets compile bash
-emmake make -j"$(nproc)"
-cd ..
+(
+  cd "$REQUIREMENTS_DIR/bash"
+  # lets compile bash
+  emmake make $JOBS
+)
 # lets compile chromium
-emmake make -j"$(nproc)"
-cp build/chromium $OUT_DIR
+emmake make $JOBS
+cp build/chromium "$OUT_DIR"
 ```

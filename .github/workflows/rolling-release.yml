@@ -1,0 +1,102 @@
+name: Rolling release
+
+# Keeps one GitHub Release, tagged `latest`, in step with the newest commit on `improvements`:
+# the tag is moved to that commit and the assets are rebuilt and replaced on every push.
+on:
+  push:
+    branches: [improvements]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rolling-release
+  cancel-in-progress: true
+
+jobs:
+  electron:
+    name: Electron (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      VITE_COMMIT_SHA: ${{ github.sha }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux
+          - os: windows-2025
+            platform: win
+          - os: macos-15
+            platform: mac
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun i --frozen-lockfile
+      - run: bun run build:check
+      - run: bun pm pkg set version=0.0.${{ github.run_number }}
+      - run: bun run desktop:dist:${{ matrix.platform }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rolling-${{ matrix.platform }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+            release/*.zip
+            release/*.snap
+            release/*.deb
+            release/*.blockmap
+            release/latest*.yml
+          if-no-files-found: error
+
+  publish:
+    name: Update the rolling release
+    needs: [electron]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: rolling-*
+          path: out
+          merge-multiple: true
+      - name: Move the latest tag and replace the assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          BRANCH: improvements
+          PRERELEASE: "false"
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          if [ -n "$(ls -A out)" ]; then (cd out && sha256sum -- * > SHA256SUMS.txt); fi
+          ls -l out
+          notes="Built automatically from the latest commit on \`$BRANCH\` ([\`${SHA::7}\`](https://github.com/$GH_REPO/commit/$SHA), $(date -u '+%Y-%m-%d %H:%M UTC')). This release is replaced on every push, so it can change at any time."
+          # Point the tag at this commit (create it the first time).
+          if gh api "repos/$GH_REPO/git/ref/tags/latest" > /dev/null 2>&1; then
+            gh api -X PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$SHA" -F force=true > /dev/null
+          else
+            gh api "repos/$GH_REPO/git/refs" -f ref=refs/tags/latest -f sha="$SHA" > /dev/null
+          fi
+          if [ "$PRERELEASE" = true ]; then flags=(--prerelease --latest=false); else flags=(--prerelease=false --latest); fi
+          if gh release view latest > /dev/null 2>&1; then
+            gh release edit latest --title "Rolling Release" --notes "$notes" "${flags[@]}"
+            # Drop assets that this build no longer produces.
+            gh release view latest --json assets --jq '.assets[].name' | while IFS= read -r a; do
+              [ -e "out/$a" ] || gh release delete-asset latest "$a" --yes
+            done
+          else
+            gh release create latest --verify-tag --title "Rolling Release" --notes "$notes" "${flags[@]}"
+          fi
+          if [ -n "$(ls -A out)" ]; then gh release upload latest out/* --clobber; fi

@@ -147,7 +147,18 @@ test("toolsFor offers the tools that fit the input", () => {
   const png = Formats.PNG.builder("png").from();
   const pdf = Formats.PDF.builder("pdf").from();
   const mp4 = Formats.MP4.builder("mp4").from();
-  const pictureTools = ["favicon", "framed", "halftone", "depth"];
+  const pictureTools = [
+    "favicon",
+    "framed",
+    "halftone",
+    "depth",
+    "clean-png",
+    "looks",
+    "mesh-3d-glb",
+    "mesh-3d-stl",
+    "mermaid-from-image",
+    "receipt-csv",
+  ];
 
   expect(toolsFor(png, 1, true)).toEqual([
     "ocr",
@@ -155,18 +166,23 @@ test("toolsFor offers the tools that fit the input", () => {
     "upscaled-photo",
     "upscaled-drawing",
     ...pictureTools,
+    "age",
   ]);
-  expect(toolsFor(pdf, 1, true)).toEqual(["ocr", "pdf-pages"]);
+  expect(toolsFor(pdf, 1, true)).toEqual(["ocr", "pdf-pages", "pdf-redacted", "pdf-signed", "age"]);
   expect(toolsFor(mp4, 1, true)).toEqual([
     "contact-sheet",
     "upscaled-film",
     "upscaled-animation",
     "metadata",
+    "transcript-srt",
+    "age",
   ]);
   expect(toolsFor(Formats.MP3.builder("mp3").from(), 1, true)).toEqual([
     "audio-check",
     "audio-video",
     "metadata",
+    "transcript-srt",
+    "age",
   ]);
   expect(toolsFor(png, 3, false)).toEqual([
     "ocr",
@@ -174,8 +190,27 @@ test("toolsFor offers the tools that fit the input", () => {
     ...pictureTools,
     "collage",
     "pdf-from-images",
+    "age",
   ]);
-  expect(toolsFor(Formats.JSON.builder("json").from(), 1, true)).toEqual(["ts"]);
+  expect(toolsFor(Formats.JSON.builder("json").from(), 1, true)).toEqual(["ts", "age"]);
+  expect(toolsFor(Formats.MD.builder("md").from(), 1, true)).toEqual([
+    "slides",
+    "slides-pdf",
+    "kanban",
+    "age",
+  ]);
+  expect(toolsFor(Formats.TTF.builder("ttf").from(), 1, true)).toEqual([
+    "woff2-subset",
+    "ttf-subset",
+    "font-specimen",
+    "age",
+  ]);
+  const age = {
+    ...Formats.ZIP.builder("age").from(),
+    format: "age",
+    mime: "application/x-age-encryption",
+  };
+  expect(toolsFor(age, 1, true)).toEqual(["age-opened"]);
 });
 
 test("toolsFor leaves out what cannot work: merging one PDF, upscaling without WebGPU", () => {
@@ -187,19 +222,29 @@ test("toolsFor leaves out what cannot work: merging one PDF, upscaling without W
     "framed",
     "halftone",
     "depth",
+    "clean-png",
+    "looks",
+    "mesh-3d-glb",
+    "mesh-3d-stl",
+    "mermaid-from-image",
+    "receipt-csv",
+    "age",
   ]);
   // a collage of one picture is that picture
   expect(toolsFor(Formats.PNG.builder("png").from(), 1, true)).not.toContain("collage");
   expect(toolsFor(Formats.MP4.builder("mp4").from(), 1, false)).toEqual([
     "contact-sheet",
     "metadata",
+    "transcript-srt",
+    "age",
   ]);
   // the check judges the file as it is, which a MIDI file has to be converted for first
   expect(toolsFor(Formats.MIDI.builder("midi").from(), 1, true)).toEqual([
     "audio-video",
     "metadata",
+    "age",
   ]);
   // a vector image has no pixels to read or cut out, and a GIF counts as video
-  expect(toolsFor(Formats.SVG.builder("svg").from(), 1, true)).toEqual([]);
-  expect(toolsFor(Formats.GIF.builder("gif").from(), 1, false)).toEqual([]);
+  expect(toolsFor(Formats.SVG.builder("svg").from(), 1, true)).toEqual(["age"]);
+  expect(toolsFor(Formats.GIF.builder("gif").from(), 1, false)).toEqual(["age"]);
 });

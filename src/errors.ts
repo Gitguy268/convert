@@ -13,8 +13,18 @@ export class EOFError extends Error {
   }
 }
 export class InitializationError extends Error {
-  constructor(message: string) {
+  constructor(message: string = "Handler not initialized.") {
     super(message);
     this.name = "InitializationError";
+  }
+}
+/**
+ * The chosen settings leave nothing to convert, such as a cut that starts past the end.
+ * No other route can do better, so this ends the search instead of rerouting (src/main.ts).
+ */
+export class NothingToConvertError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NothingToConvertError";
   }
 }

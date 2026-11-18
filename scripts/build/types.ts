@@ -1,3 +1,5 @@
+type Common = { name: string; optional?: boolean };
+
 type Source = {
   url: `https://${string}`;
   hash: [Bun.SupportedCryptoAlgorithms, string];
@@ -8,19 +10,25 @@ type Source = {
 // all of a source or none of it
 type MaybeSource = Source | { [K in keyof Source]?: never };
 
-type Subrecipe<Script> = { name: string } & Script & MaybeSource;
+type Subrecipe<Script> = Common & Script & MaybeSource;
 
-export type SourceRequirement = { name: string } & Source;
+type Toolchains = { toolchains?: string[] };
+
+export type SourceRequirement = Common & Source;
 export type AssembleRequirement = Subrecipe<{ assemble: string }>;
-export type PrebuildRequirement = Subrecipe<{
-  prebuild: string;
-  image: `${string}@sha256:${string}`;
-  allowNetwork?: boolean;
-}>;
+export type PrebuildRequirement = Subrecipe<
+  {
+    prebuild: string;
+    allowNetwork?: boolean;
+  } & Toolchains
+>;
 
 export type SubrecipeRequirement = AssembleRequirement | PrebuildRequirement;
 export type Requirement = SourceRequirement | SubrecipeRequirement;
 export type RequirementsConfig = Requirement[];
+
+export type Toolchain = Requirement & Toolchains & { version: string };
+export type ToolchainsConfig = Toolchain[];
 
 export function hasSource(requirement: Requirement): requirement is SourceRequirement {
   return requirement.url !== undefined;

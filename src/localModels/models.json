@@ -1,0 +1,143 @@
+{
+ "chunkSize": 67108864,
+ "models": {
+  "mermaid": {
+   "label": "MiniCPM-V 4.7 1B Mermaid",
+   "licence": "Apache-2.0",
+   "files": [
+    {
+     "role": "model",
+     "repo": "Lucasgitguy-co/minicpm-mermaid-gguf",
+     "revision": "6bf0992b3320da365550c455057a7a99575fee34",
+     "path": "model-Q4_K_M.gguf",
+     "size": 672003776,
+     "chunks": [
+      "8963cae4e07cde259c7455d7155e56089f4dc7ab7f888c44ebda975a1b2bf843",
+      "a7aacfdec99db50d77c033492b4b9fd719db8cf7905fe28f8a314db6e650441a",
+      "bd66d5b6b06546ed327d3e85940f509d95c753b54d921bd05d6945d96d7c9c56",
+      "95cf3a3a9698548b4fcdf5ac0bb4f872e588e92a4b8db4b6d479f7dddbe04918",
+      "1e390dae8048cbf8df9b7af3e5f7ab813df045a7bb1b2daefa66e237e4fff6a5",
+      "955938bf2a249b1ddd89b96e59bb8111017b7c0eb8c01e12454810e2f49b84c7",
+      "5a159d1dd84edccad4784c153ef56c570e673260c740f10b95f05f5746560c65",
+      "a82d7badc937627ed675e873f1c8e651b4c75b5948e6aa0cf597a11f52e22d24",
+      "ac061dd41b242d4ac836bd98d6c039f142127a2f4dce5ea6792311b63ac26ecc",
+      "4bf226f09aee4ed0fad0a83836e8d4073dc5b885c15ee818b3157557b5e5df06",
+      "87757ff00d1317d56d8c81188de1ccbeb990f87b7d9d25ca92645e86638454e6"
+     ]
+    },
+    {
+     "role": "mmproj",
+     "repo": "Lucasgitguy-co/minicpm-mermaid-gguf",
+     "revision": "6bf0992b3320da365550c455057a7a99575fee34",
+     "path": "mmproj-model-f16.gguf",
+     "size": 1108763232,
+     "chunks": [
+      "caf914a27ac4d1d13534b7045290d3c77af1e59bcc172acf482d6bbb88a0ba7c",
+      "45cd48063ef5109c4fed5f6c261360617e861ae4c6a5b6434b015c9b6c9899f4",
+      "02109cc18c889fd87b852a31fc4bf8848e756be94cc1b449f9a114adee1809b2",
+      "0b54a81b79f105e3de90bdcdd985a4f4e282b51455360c98ec612c127d4221ff",
+      "7a6a476c5fb56e9bf156b8c3da305b02bdc15b4d6cc2bc5be18ccbbdf91bb57c",
+      "e3db96c76d55af9b53f186d971e61cb68af1c01e1b6a26113d5d0429dd9c4f58",
+      "4a07ca375423740c9f0153e126fb302d6ecb704d01176f9ee2fef0e5323ae330",
+      "e89367539b1d1314342be17b8692ace807a8b5512698113561ab1cac981b19d3",
+      "48f2bdc4c9fb837c1bf411ed352d40efffd23e1c6bc70ade9b73b90c5d9ad8af",
+      "fb1c43fa5a7b5819fd31a19ea063b580c9080937e7c267ddc80bd76f907913f8",
+      "2393d8d103706932c0251766134b5d7006ef5c7a4343faba1c0a18a11b8eb914",
+      "8026ba82ec687b50d4f74808cfead08d04ae84127f72f140ed6d51dfad3815ce",
+      "ec9240c02a1d23c7637ebb112d984c22aca2de633b56d27509119d2c1d34aa14",
+      "c5549ba2b9efb6da3fc89e92d17b366f474aab7f375a5728fdc17b611ad70838",
+      "38f4c3e619a1683fe0637dbe630994784cba188e6e96fff8b21eb0e650a5058a",
+      "b4754047afc4164f56e76ad9f74f877338e8f58f20dd7d0192f0304aa97fc505",
+      "7767d5618ff64eee640d42d02cc79a6bf4102f19cc296de4eecbba4bb4dd3c35"
+     ]
+    }
+   ]
+  },
+  "receipt": {
+   "label": "Xiaomi-OCR-0 with the CORD receipt LoRA",
+   "licence": "Apache-2.0",
+   "files": [
+    {
+     "role": "model",
+     "repo": "prithivMLmods/Xiaomi-OCR-0-GGUF",
+     "revision": "7bbfa072e0f3d70ac722e26fbccef5b9f64b7121",
+     "path": "Xiaomi-OCR-0.Q4_K_M.gguf",
+     "size": 529297664,
+     "chunks": [
+      "f04d65e72f7f27e3c7d0e959a25f8383e21c8a93e10fbd348cba0d38b58fb059",
+      "427ba74087a2c5e9c9e96e1ac3937c23da90cc6bc42e3b031ad2af28e5589eb4",
+      "62785b42cc55ec726f5667ac7874e415e7078072fbd802a7ea4878668dd7e788",
+      "d4f3c79545c8cb38023d28c228aca174562715bf425f0728ff2736cc77d9a2ed",
+      "e7586f9c9789b1736e59fc91a911eebd383f075ebc2f64b8af158e6728242ce8",
+      "5fd9a60f7346a6b44263f93df60755896e43c56945f446d4ae4f6ae6c6bc9c32",
+      "e820e5f534d7c75e2197e96021f5149e4eb304b35345ba35362df2f3592ee8b5",
+      "a79ba7ab5625639489cce1c88c2aa0525ce08e73d799bea27db81a8dcfcd9031"
+     ]
+    },
+    {
+     "role": "mmproj",
+     "repo": "prithivMLmods/Xiaomi-OCR-0-GGUF",
+     "revision": "7bbfa072e0f3d70ac722e26fbccef5b9f64b7121",
+     "path": "Xiaomi-OCR-0.mmproj-bf16.gguf",
+     "size": 207346624,
+     "chunks": [
+      "6f749df624db1c67faa2db941f598f0af82ed17738399d16926ad604e11d135a",
+      "7bfbdc8cff15e97ec5d686420bb6a8a7b6ace0076239857045dbe3ea1b56dda3",
+      "dc612d27fdd4d0fe99bed943216af09416c444b8d2ccd7e9e78c3d4ba73f6ada",
+      "02b678a747220c5e29146cabc4e3c70c3595cfe48d0018a716b2ad2e51d210b5"
+     ]
+    },
+    {
+     "role": "lora",
+     "repo": "Lucasgitguy-co/Xiaomi-OCR-0-CORD-LoRA-GGUF",
+     "revision": "bc0622a89b069fc6a9dbb89ad452dcffbcd33897",
+     "path": "Xiaomi-OCR-0-CORD-LoRA-F16.gguf",
+     "size": 10848352,
+     "chunks": [
+      "1dcb4b35c6ebe925d42de112f06e6ea4dd8e7a64d903c82a19b67929c757e6d2"
+     ]
+    }
+   ]
+  },
+  "speech": {
+   "label": "Qwen3-ASR 0.6B",
+   "licence": "Apache-2.0",
+   "files": [
+    {
+     "role": "model",
+     "repo": "ggml-org/Qwen3-ASR-0.6B-GGUF",
+     "revision": "928ab958557df9aa2ef1c93e0e83c7ad0933fae2",
+     "path": "Qwen3-ASR-0.6B-Q8_0.gguf",
+     "size": 804749248,
+     "chunks": [
+      "d5e4b33ff12930fcd61c9c9d038d0aa1f8101f86e36e5ba02d812a7c358e15f9",
+      "6714b209a5956db61af3b94e9238a7224d2b3ea0ae1199a6a90e80cb1a9ecb96",
+      "c017cae71de0d69a11e2bc211ecb60ad15fc1286c5d228dbb721043e582ce562",
+      "1aafc62653f781e01b460b09d6e02f6450fb4f5b868b5930865268ca661f01c4",
+      "ff51b389ebece0858e25167540b4fa555860a2c5f1b21a92216fecd41515a5a1",
+      "7c1921d34a23535561888e78af80c381f2536bb8cb4761533f666732baf96c79",
+      "cda297b8f5d4fabe27e292f5d823b78dcf14be6465b3382a50681099e89de969",
+      "ed1e4bc4e36430f163cdbf77abfbaed94386835cf4f3524f7a82f10790eb6c5c",
+      "c84481b08b17f8b3272e10812c7534618658576ef9d99f4c8196f45245d7968b",
+      "bc628ce2ba59ab4d6923b4f97b18b806a2333ae681ead08890b1292bd9f2cbaa",
+      "ffed37f273ae93699e2a52fe2c2bd7bdec917311eab647d84e3de8c8cd03c334",
+      "630f1aa03496c168657f5d9f8da7ad0a45de5b7a5efb9369476cffdddcfe7a1d"
+     ]
+    },
+    {
+     "role": "mmproj",
+     "repo": "ggml-org/Qwen3-ASR-0.6B-GGUF",
+     "revision": "928ab958557df9aa2ef1c93e0e83c7ad0933fae2",
+     "path": "mmproj-Qwen3-ASR-0.6B-Q8_0.gguf",
+     "size": 214392480,
+     "chunks": [
+      "3dd3b3dc12f05cd5ae6b913bdda573bc5a0f2b52d55bbcb9ad3015c80e6efa2a",
+      "055086571287d8e37688064bdf95de77fdc31a79cf8fb8e373ab32029baff9aa",
+      "885fbf3179de90d8bbc9d97219894d2073cf33d8ab6071627ef536b8e3243e89",
+      "35d08cc27704a2db50c57deabb97ae9d5db3c38a10e2a03adad9958bbe0e1fa5"
+     ]
+    }
+   ]
+  }
+ }
+}

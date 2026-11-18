@@ -10,20 +10,12 @@ import {
   type ConversionOptionsMap,
 } from "src/main";
 import { Mode, ModeEnum } from "src/ui/ModeStore";
-import type { FileData } from "src/FormatHandler";
-import {
-  altersContent,
-  applicableSettings,
-  compressorsFor,
-  COMPRESS_DEFAULTS,
-  sameFormat,
-  settingsFor,
-  SETTINGS_HANDLERS,
-  type SettingKey,
-} from "src/ConversionSettings";
+import { formatIdentifier, sameFormat, type FileData, type FileFormat } from "src/FormatHandler";
+import { altersContent, compressorsFor, COMPRESS_DEFAULTS, tidyEdits } from "src/edits";
 import {
   getMatchingFromFormats,
   groupByTarget,
+  rememberTarget,
   resolveTargets,
   siblingKeys,
   toolsFor,
@@ -32,6 +24,12 @@ import {
   type TargetGroup,
 } from "src/batch";
 import { stripExt } from "src/common";
+import { describeFound, findMetadata } from "src/handlers/stripMetadata";
+import { MODEL_FOR_FORMAT, parseCues } from "src/handlers/modelTools";
+import { Studio, type StudioState } from "src/ui/components/Studio";
+import { decode } from "src/common";
+import { ensureModel } from "src/ui/components/ModelDialog";
+import { filePath } from "src/common/path.ts";
 
 import ConversionHeader from "src/ui/components/Conversion/ConversionHeader";
 import FormatExplorer from "src/ui/components/Conversion/FormatExplorer";
@@ -51,6 +49,22 @@ import {
   ImageUpscale,
   Images,
   Info,
+  Archive,
+  ALargeSmall,
+  PencilRuler,
+  Box,
+  Captions,
+  ReceiptText,
+  Workflow,
+  Highlighter,
+  Signature,
+  Type,
+  Lock,
+  LockOpen,
+  Palette,
+  Presentation,
+  ShieldOff,
+  SquareKanban,
   Layers,
   LayoutDashboard,
   LayoutGrid,
@@ -58,20 +72,24 @@ import {
   Plus,
   ScanText,
   Scissors,
-  SlidersHorizontal,
 } from "lucide-preact";
 import Chip from "src/ui/components/Chip";
 import { PopupData } from "src/ui";
-import { openPopup } from "src/ui/PopupStore";
+import { closePopup, openPopup, popupOpen } from "src/ui/PopupStore";
 import FileInfoBadge, { formatFileSize } from "src/ui/components/FileInfo";
 import AudioReport, { readSummaries } from "src/ui/components/AudioReport";
 import { ConversionInProgress, CurrentPage, Pages } from "src/ui/AppState";
 import { ProgressStore, ROUTE_FAILED } from "src/ui/ProgressStore";
 import StyledButton, { ButtonVariant } from "src/ui/components/StyledButton";
-import ConversionSettingsForm, {
-  Settings,
+import SettingsPanel from "src/ui/components/Conversion/SettingsPanel";
+import {
+  ConversionSettings,
+  SettingsPanelOpen,
+  setSetting,
   ZipPassword,
-} from "src/ui/components/ConversionSettings";
+  applicableSettings,
+  availableSettings,
+} from "src/ui/ConversionSettingsStore";
 
 type ConversionStep = "select-from" | "select-to" | "converting";
 
@@ -98,6 +116,45 @@ const TOOLS: Record<string, { label: string; icon: preact.JSX.Element }> = {
   collage: { label: "Collage", icon: <LayoutDashboard size={14} /> },
   metadata: { label: "Metadata", icon: <Info size={14} /> },
   ts: { label: "TypeScript types", icon: <Braces size={14} /> },
+  trim: { label: "Trim", icon: <Scissors size={14} /> },
+  "edit-mermaid": { label: "Edit diagram", icon: <PencilRuler size={14} /> },
+  "edit-subtitles": { label: "Edit subtitles", icon: <PencilRuler size={14} /> },
+  "clean-jpeg": { label: "Remove metadata", icon: <ShieldOff size={14} /> },
+  "clean-png": { label: "Remove metadata", icon: <ShieldOff size={14} /> },
+  "clean-webp": { label: "Remove metadata", icon: <ShieldOff size={14} /> },
+  looks: { label: "Theme from its colours", icon: <Palette size={14} /> },
+  slides: { label: "Slides", icon: <Presentation size={14} /> },
+  "slides-pdf": { label: "Slides as PDF", icon: <Presentation size={14} /> },
+  kanban: { label: "Board", icon: <SquareKanban size={14} /> },
+  "archived-page": { label: "Page in one file", icon: <Archive size={14} /> },
+  "woff2-subset": { label: "Subset for the web", icon: <Type size={14} /> },
+  "ttf-subset": { label: "Subset as TTF", icon: <Type size={14} /> },
+  "font-specimen": { label: "Specimen", icon: <ALargeSmall size={14} /> },
+  "pdf-redacted": { label: "Redact", icon: <Highlighter size={14} /> },
+  "pdf-signed": { label: "Sign", icon: <Signature size={14} /> },
+  "mermaid-from-image": { label: "Diagram to Mermaid (AI)", icon: <Workflow size={14} /> },
+  "receipt-csv": { label: "Receipt to CSV (AI)", icon: <ReceiptText size={14} /> },
+  "transcript-srt": { label: "Subtitles (AI)", icon: <Captions size={14} /> },
+  "mesh-3d-glb": { label: "3D model", icon: <Box size={14} /> },
+  "mesh-3d-stl": { label: "3D print (STL)", icon: <Box size={14} /> },
+  age: { label: "Encrypt (age)", icon: <Lock size={14} /> },
+  "age-opened": { label: "Decrypt", icon: <LockOpen size={14} /> },
+};
+
+/** Video and sound: what has a start and an end to cut between. */
+const isTimed = (format: FileFormat) => {
+  const categories = Array.isArray(format.category) ? format.category : [format.category];
+  return (
+    (categories.includes("video") && !categories.includes("image")) || categories.includes("audio")
+  );
+};
+
+/** Tools that can't run without one setting, so picking them opens the settings. */
+const NEEDS_SETTING: Record<string, string> = {
+  age: "passphrase",
+  "age-opened": "passphrase",
+  "pdf-redacted": "redact",
+  "pdf-signed": "signature",
 };
 
 function countAvailableFormats(
@@ -117,7 +174,7 @@ function countAvailableFormats(
       continue;
     }
 
-    const dedupeKey = `${format.mime}|${format.format}`;
+    const dedupeKey = formatIdentifier(format);
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
     count += 1;
@@ -148,8 +205,8 @@ async function downloadAsZip(files: FileData[], name: string, password: string) 
     new BlobWriter("application/zip"),
     password ? { password, encryptionStrength: 3 } : {},
   );
-  // zip.js refuses a second entry with the same name
-  const names = uniqueNames(files.map((file) => file.name));
+  // zip.js refuses a second entry with the same name; folders of an extracted archive stay
+  const names = uniqueNames(files.map((file) => filePath(file)));
   for (const [i, file] of files.entries()) {
     await writer.add(names[i], new Uint8ArrayReader(file.bytes));
   }
@@ -166,7 +223,25 @@ function removeFile(key: string) {
   if (Object.keys(rest).length === 0) CurrentPage.value = Pages.Upload;
 }
 
+/**
+ * The settings an output format takes. In simple mode a format stands for every handler's
+ * version of it, so only the settings they share by name are offered (as upstream does).
+ */
+function specsFor(options: ConversionOptionsMap, formats: FileFormat[], advanced: boolean) {
+  if (advanced) return availableSettings(formats);
+  const ids = new Set(formats.map(formatIdentifier));
+  return availableSettings(
+    [...options.keys()].filter((f) => f.to && ids.has(formatIdentifier(f))),
+    true,
+  );
+}
+
 export default function Conversion() {
+  const actionRef = useRef<HTMLButtonElement>(null);
+  const filesRef = useRef<HTMLDivElement>(null);
+  const actionBarRef = useRef<HTMLDivElement>(null);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+  const previousStep = useRef<ConversionStep | null>(null);
   const allOptions = getConversionOptions();
   const entries = useMemo(
     () => Object.entries(SelectedFiles.value) as [string, File][],
@@ -194,7 +269,8 @@ export default function Conversion() {
   const matchingFromSet = useMemo(() => new Set([...matchingFrom].map(([f]) => f)), [matchingFrom]);
 
   const [step, setStep] = useState<ConversionStep>(fromOption ? "select-to" : "select-from");
-  const [showAll, setShowAll] = useState(false);
+  // with no file at all, the page is for browsing the formats
+  const [showAll, setShowAll] = useState(entries.length === 0);
   const [applyToAll, setApplyToAll] = useState(true);
   const [isConverting, setIsConverting] = useState(false);
   const [converting, setConverting] = useState<TargetGroup<{ file: File }> | null>(null);
@@ -204,6 +280,25 @@ export default function Conversion() {
     setStep(fromOption ? "select-to" : "select-from");
     setShowAll(false);
   }, [activeKey]);
+
+  // the next file of the same kind starts from this choice
+  useEffect(() => {
+    for (const [key, file] of entries) if (targets[key]) rememberTarget(file, targets[key]);
+  }, [targets]);
+
+  useEffect(() => {
+    if (previousStep.current === "converting" && step !== "converting" && !popupOpen.peek()) {
+      actionRef.current?.focus();
+    }
+    previousStep.current = step;
+  }, [step]);
+
+  const toFormats = [...new Set(Object.values(targets).flatMap((t) => (t.to ? [t.to[0]] : [])))];
+  const settingSpecs = useMemo(
+    () => specsFor(allOptions, toFormats, isAdvanced),
+    [allOptions, toFormats.map(formatIdentifier).join(), isAdvanced],
+  );
+  const settings = applicableSettings(settingSpecs);
 
   const toSiblings = siblingKeys(entries, targets, activeKey, "to");
 
@@ -241,7 +336,8 @@ export default function Conversion() {
   };
 
   const compressors = fromOption ? compressorsFor(fromOption[0], window.handlerDefs) : [];
-  const allReady = entries.every(([key]) => targets[key].from && targets[key].to);
+  const allReady =
+    entries.length > 0 && entries.every(([key]) => targets[key].from && targets[key].to);
 
   const handleConvert = async () => {
     if (!allReady) return;
@@ -256,8 +352,15 @@ export default function Conversion() {
       const groups = groupByTarget(
         entries.map(([key, file]) => ({ file, from: targets[key].from!, to: targets[key].to! })),
       );
+      // the model tools ask for their model first, once (src/ui/components/ModelDialog)
+      for (const id of new Set(groups.flatMap((g) => MODEL_FOR_FORMAT[g.to[0].format] ?? []))) {
+        if (!(await ensureModel(id))) throw new DOMException("No model", "AbortError");
+      }
+
       const outputs: FileData[] = [];
       const summary: string[] = [];
+      // results the editors can open: Mermaid read from a picture, subtitles from speech
+      const editable: StudioState[] = [];
       let outputMime = "";
       let failed = 0;
 
@@ -282,19 +385,17 @@ export default function Conversion() {
           continue;
         }
 
-        const settings = settingsFor(
-          Settings.value,
-          toFormat,
-          compress ? COMPRESS_DEFAULTS : {},
-          fromFormat,
-        );
+        // the settings this group's output takes, plus a default quality when compressing
+        const groupSpecs = specsFor(allOptions, [toFormat], isAdvanced);
+        const chosen = applicableSettings(groupSpecs, settings);
+        const defaults = compress ? applicableSettings(groupSpecs, COMPRESS_DEFAULTS) : {};
+        const groupSettings = tidyEdits({ ...defaults, ...chosen }, chosen);
         const logStart = ProgressStore.logs.value.length;
         const output = await window.tryConvertByTraversing(
           inputs,
           { handler: fromHandler, format: fromFormat },
           { handler: toHandler, format: toFormat },
-          abortController.signal,
-          settings,
+          { abort: abortController.signal, settings: groupSettings },
         );
 
         if (!output) {
@@ -312,24 +413,44 @@ export default function Conversion() {
           continue;
         }
         outputs.push(...output.files);
+        if (toFormat.format === "mermaid-from-image") {
+          for (const file of output.files)
+            editable.push({ kind: "mermaid", name: file.name, text: decode(file.bytes) });
+        } else if (toFormat.format.startsWith("transcript-")) {
+          for (const [i, file] of output.files.entries()) {
+            editable.push({
+              kind: "subtitles",
+              name: file.name,
+              cues: parseCues(decode(file.bytes)),
+              media: group.items[i]?.file,
+            });
+          }
+        }
         // set here, not earlier, so a group that failed can't label another group's file
         outputMime = toFormat.mime;
 
         let line = `${label}: via ${output.path.map((c) => c.format.format).join(" → ")}.`;
+        // what was in the pictures, above all where they were taken, is the point of the tool
+        if (toFormat.format.startsWith("clean-")) {
+          for (const input of inputs)
+            summary.push(describeFound(input.name, findMetadata(input.bytes)));
+        }
         if (compress) {
           const outputSize = totalSize(output.files);
           const saved = 1 - outputSize / inputSize;
           const sizes = `${formatFileSize(inputSize)} → ${formatFileSize(outputSize)}`;
           if (saved > 0) line = `${label}: ${Math.round(saved * 100)}% smaller (${sizes}).`;
-          else if (altersContent(settings)) line = `${label}: done (${sizes}).`;
+          else if (altersContent(groupSettings)) line = `${label}: done (${sizes}).`;
           else line = `${label}: could not be made smaller, original kept.`;
-          if (settings.protect) line += " Protected with a password.";
-          else if (settings.password) line += " Unlocked: it opens without a password now.";
+          if (groupSettings.protect) line += " Protected with a password.";
+          else if (groupSettings.password) line += " Unlocked: it opens without a password now.";
         }
         // a setting that silently did nothing is worse than no setting, above all "remove metadata"
-        const lastHandler = output.path.at(-1)?.handler.name ?? "";
-        if (Object.keys(settings).length && !SETTINGS_HANDLERS.has(lastHandler)) {
-          line += ` The output settings were not applied: ${lastHandler} does not support them.`;
+        const applied = new Set(output.path.flatMap((node) => Object.keys(node.options ?? {})));
+        const skipped = Object.keys(groupSettings).filter((key) => !applied.has(key));
+        if (skipped.length) {
+          const names = skipped.map((key) => settingSpecs.get(key)?.label ?? key);
+          line += ` Not applied, no step of this route supports it: ${names.join(", ")}.`;
         }
         summary.push(line);
       }
@@ -340,7 +461,7 @@ export default function Conversion() {
           const zipName = `${stripExt(entries[0][1].name)}-converted.zip`;
           await downloadAsZip(outputs, zipName, password);
         } else if (outputs.length === 1) {
-          downloadFile(outputs[0].bytes, outputs[0].name, outputMime);
+          downloadFile(outputs[0].bytes, filePath(outputs[0]).replaceAll("/", "_"), outputMime);
         }
       };
       // a report is read here first, and saved only when asked for
@@ -360,10 +481,26 @@ export default function Conversion() {
             <h1>{title}</h1>
             {reports.length > 0 && <AudioReport summaries={reports} onSave={save} />}
             {(!reports.length || failed > 0) && summary.map((line) => <p key={line}>{line}</p>)}
+            {editable.length > 0 && (
+              <div className="conversion-editors">
+                {editable.map((state) => (
+                  <button
+                    key={state.name}
+                    type="button"
+                    onClick={() => {
+                      closePopup();
+                      Studio.value = state;
+                    }}
+                  >
+                    Open {state.name} in the editor
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         ),
       };
-      openPopup();
+      openPopup(() => actionRef.current);
     } catch (e) {
       console.error(e);
       if (e instanceof Error && e.name === "AbortError") {
@@ -375,7 +512,7 @@ export default function Conversion() {
           dismissible: true,
           buttonText: "OK",
         };
-        openPopup();
+        openPopup(() => actionRef.current);
       }
     } finally {
       setIsConverting(false);
@@ -398,37 +535,52 @@ export default function Conversion() {
     if (addFileRef.current) addFileRef.current.value = "";
   };
 
-  const settingKeys = [
-    ...new Set(
-      Object.values(targets).flatMap<SettingKey>((t) =>
-        t.to ? applicableSettings(t.to[0], t.from?.[0]) : [],
-      ),
-    ),
-  ];
-
-  const handleSettingsClick = () => {
-    PopupData.value = {
-      dismissible: true,
-      buttonText: "Done",
-      contents: <ConversionSettingsForm keys={settingKeys} />,
-    };
-    openPopup();
-  };
-
   const tools =
     step === "select-to" && fromOption
-      ? toolsFor(fromOption[0], toSiblings.length + 1, "gpu" in navigator).flatMap((id) => {
-          const option = [...allOptions].find(([format]) => format.to && format.format === id);
-          return option ? [{ id, option }] : [];
-        })
+      ? [
+          // a cut keeps the format: the trimmer in the settings marks it
+          ...(isTimed(fromOption[0]) && compressors.length
+            ? [{ id: "trim", option: compressors[0] }]
+            : []),
+          // the editors open the file as it is, without converting
+          ...(fromOption[0].mime === "text/vnd.mermaid"
+            ? [{ id: "edit-mermaid", option: fromOption }]
+            : []),
+          ...(["application/x-subrip", "text/vtt"].includes(fromOption[0].mime)
+            ? [{ id: "edit-subtitles", option: fromOption }]
+            : []),
+          ...toolsFor(fromOption[0], toSiblings.length + 1, "gpu" in navigator).flatMap((id) => {
+            const matches = [...allOptions].filter(([format]) => format.to && format.format === id);
+            const option = matches.find(([f]) => f.mime === fromOption[0].mime) ?? matches[0];
+            return option ? [{ id, option }] : [];
+          }),
+        ]
       : [];
+
+  /** Opens the chosen file in its editor; subtitles take a video or song selected with them. */
+  const openEditor = async (id: string) => {
+    if (!activeFile) return;
+    const text = await activeFile.text();
+    if (id === "edit-mermaid") {
+      Studio.value = { kind: "mermaid", name: activeFile.name, text };
+      return;
+    }
+    const media = entries
+      .map(([, file]) => file)
+      .find((file) => /^(video|audio)\//.test(file.type));
+    Studio.value = { kind: "subtitles", name: activeFile.name, cues: parseCues(text), media };
+  };
 
   const canProceed = step === "select-from" ? !!fromOption : allReady;
   const multiple = entries.length > 1;
 
   return (
     <div className="conversion-body">
-      <ConversionHeader logoDisabled={step === "converting"} />
+      <ConversionHeader
+        logoDisabled={step === "converting"}
+        settingsCount={Object.keys(settings).length}
+        settingsDisabled={step === "converting"}
+      />
 
       <main className="conversion-main">
         {step === "converting" ? (
@@ -440,8 +592,19 @@ export default function Conversion() {
           />
         ) : (
           <FormatExplorer
+            searchScopeRef={actionBarRef}
             conversionOptions={allOptions}
             matchingFrom={matchingFromSet}
+            onBack={handleBack}
+            onAdvance={(option) => {
+              if (step === "select-from") {
+                handleFromSelect(option);
+                setStep("select-to");
+              } else {
+                handleToSelect(option);
+                requestAnimationFrame(() => actionRef.current?.focus());
+              }
+            }}
             onSelect={step === "select-from" ? handleFromSelect : handleToSelect}
             direction={step === "select-from" ? "from" : "to"}
             fromOption={fromOption}
@@ -459,18 +622,45 @@ export default function Conversion() {
             tools={
               tools.length > 0 &&
               tools.map(({ id, option }) => {
-                const selected = toOption?.[0].format === id;
+                const selected =
+                  id === "trim"
+                    ? !!toOption &&
+                      toOption[0] === option[0] &&
+                      !!ConversionSettings.value.copyStreams
+                    : toOption?.[0].format === id;
                 return (
                   <Chip
                     key={id}
                     label={TOOLS[id].label}
                     icon={TOOLS[id].icon}
                     selected={selected}
-                    onClick={() => handleToSelect(selected ? null : option)}
+                    onClick={() => {
+                      if (id === "edit-mermaid" || id === "edit-subtitles") {
+                        void openEditor(id);
+                        return;
+                      }
+                      handleToSelect(selected ? null : option);
+                      if (id === "trim" && !selected) {
+                        setSetting("copyStreams", true);
+                        SettingsPanelOpen.value = true;
+                      }
+                      // these tools do nothing without a setting: show where it goes
+                      const needs = NEEDS_SETTING[id];
+                      if (!selected && needs && !ConversionSettings.value[needs]) {
+                        SettingsPanelOpen.value = true;
+                      }
+                    }}
                   />
                 );
               })
             }
+          />
+        )}
+        {SettingsPanelOpen.value && step !== "converting" && (
+          <SettingsPanel
+            specs={settingSpecs}
+            trimFile={activeFile && fromOption && isTimed(fromOption[0]) ? activeFile : undefined}
+            formatName={toFormats.map((f) => f.format.toUpperCase()).join(", ") || undefined}
           />
         )}
       </main>
@@ -480,8 +670,8 @@ export default function Conversion() {
         h(
           "dispersive-glass",
           { class: "conversion-dock", refraction: true, "refraction-scale": 28 },
-          <div className="conversion-action-bar">
-            <div className="conversion-action-files">
+          <div className="conversion-action-bar" ref={actionBarRef}>
+            <div className="conversion-action-files" ref={filesRef}>
               {entries.map(([key, file]) => (
                 <FileInfoBadge
                   key={key}
@@ -489,7 +679,21 @@ export default function Conversion() {
                   fileSize={file.size}
                   extension={file.name.split(".").pop()}
                   mimeType={file.type}
-                  onRemove={() => removeFile(key)}
+                  onRemove={() => {
+                    // badges render in SelectedFiles order, so the key's index matches the DOM
+                    const buttons = [
+                      ...(filesRef.current?.querySelectorAll<HTMLButtonElement>(
+                        ".file-info-remove",
+                      ) ?? []),
+                    ];
+                    const index = Object.keys(SelectedFiles.value).indexOf(key);
+                    const next = buttons[index + 1] ?? buttons[index - 1];
+                    removeFile(key);
+                    requestAnimationFrame(() => {
+                      if (next?.isConnected) next.focus();
+                      else addButtonRef.current?.focus();
+                    });
+                  }}
                   active={multiple && key === activeKey}
                   target={
                     multiple ? (targets[key]?.to?.[0].format.toUpperCase() ?? "?") : undefined
@@ -497,28 +701,16 @@ export default function Conversion() {
                   onClick={multiple ? () => setChosenKey(key) : undefined}
                 />
               ))}
-              <div
+              <button
+                ref={addButtonRef}
+                type="button"
                 className="file-info-badge file-info-add"
                 onClick={handleAddClick}
-                role="button"
-                tabIndex={0}
                 aria-label="Add more files"
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter" && e.key !== " ") return;
-                  e.preventDefault();
-                  addFileRef.current?.click();
-                }}
               >
-                <input
-                  ref={addFileRef}
-                  type="file"
-                  multiple
-                  hidden
-                  onClick={(ev) => ev.stopPropagation()}
-                  onChange={handleAddChange}
-                />
                 <Plus size={16} />
-              </div>
+              </button>
+              <input ref={addFileRef} type="file" multiple hidden onChange={handleAddChange} />
             </div>
             {step === "select-to" && toSiblings.length > 0 && (
               <label
@@ -543,18 +735,14 @@ export default function Conversion() {
               </StyledButton>
             )}
             {step === "select-to" && (
-              <StyledButton onClick={handleSettingsClick}>
-                <SlidersHorizontal size={16} />
-                Settings
-              </StyledButton>
-            )}
-            {step === "select-to" && (
               <StyledButton onClick={handleBack}>
                 <ArrowLeft size={16} />
                 Back
               </StyledButton>
             )}
             <StyledButton
+              buttonRef={actionRef}
+              className="conversion-primary-action"
               variant={ButtonVariant.Primary}
               disabled={!canProceed}
               title={

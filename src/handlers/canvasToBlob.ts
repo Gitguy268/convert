@@ -12,12 +12,19 @@ import {
 } from "src/common/canvas.ts";
 import { changeExt, decode, encode } from "src/common/index.ts";
 
+/** The fork's edits that a canvas can make (src/Settings.ts). */
+const CANVAS_EDITS = { maxSize: true, watermark: true } as const;
+
 class canvasToBlobHandler implements FormatHandler {
   public readonly name = "canvasToBlob";
   public supportedFormats = [
-    Formats.PNG.builder("png").lossless().fromTo(),
-    Formats.JPEG.builder("jpeg").fromTo(),
-    Formats.WEBP.builder("webp").fromTo(),
+    Formats.PNG.builder("png").lossless().options(CANVAS_EDITS).fromTo(),
+    Formats.JPEG.builder("jpeg")
+      .options({ quality: true, ...CANVAS_EDITS })
+      .fromTo(),
+    Formats.WEBP.builder("webp")
+      .options({ quality: true, ...CANVAS_EDITS })
+      .fromTo(),
     Formats.GIF.builder("gif").from(),
     Formats.TEXT.builder("text").fromTo(),
   ];
@@ -34,17 +41,13 @@ class canvasToBlobHandler implements FormatHandler {
     inputFiles: FileData[],
     inputFormat: FileFormat,
     outputFormat: FileFormat,
-    _args?: string[],
     convertCtx?: ConvertContext,
   ): Promise<FileData[]> {
+    const quality = convertCtx?.options.quality;
     if (!this.#bundle) {
       throw new InitializationError("Handler not initialized.");
     }
     const { ctx, canvas } = this.#bundle;
-    // a canvas can't write a palette, so this sends the conversion on to ImageMagick
-    if (convertCtx?.settings.colors && outputFormat.mime === "image/png") {
-      throw new Error("canvasToBlob can't reduce the colours of a PNG.");
-    }
 
     const outputFiles: FileData[] = [];
     for (const inputFile of inputFiles) {
@@ -84,7 +87,7 @@ class canvasToBlobHandler implements FormatHandler {
           this.#bundle,
           inputFile.bytes,
           inputFormat.mime,
-          convertCtx?.settings.maxSize,
+          convertCtx?.options.maxSize,
         );
       }
 
@@ -111,9 +114,13 @@ class canvasToBlobHandler implements FormatHandler {
           }),
         );
       } else {
-        const watermark = convertCtx?.settings.watermark;
+        const watermark = convertCtx?.options.watermark;
         if (watermark) drawWatermark(ctx, canvas.width, canvas.height, watermark);
-        bytes = await canvasToBlob(this.#bundle, outputFormat.mime, convertCtx?.settings.quality);
+        bytes = await canvasToBlob(
+          this.#bundle,
+          outputFormat.mime,
+          quality === undefined ? undefined : quality / 100,
+        );
       }
 
       const name = changeExt(inputFile.name, outputFormat.extension);

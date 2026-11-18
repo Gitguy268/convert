@@ -65,7 +65,6 @@ export default class pptxRendererHandler implements FormatHandler {
     inputFiles: FileData[],
     inputFormat: FileFormat,
     outputFormat: FileFormat,
-    _args?: string[],
   ): Promise<FileData[]> {
     if (!this.ready) throw new Error("Handler not initialized.");
     if (inputFormat.internal !== "pptx" || outputFormat.internal !== "pdf") {
@@ -79,6 +78,9 @@ export default class pptxRendererHandler implements FormatHandler {
     stagingRoot.style.top = "0";
     stagingRoot.style.pointerEvents = "none";
     stagingRoot.style.background = "#ffffff";
+    // the dark theme's text colour is a color-mix(), which html2canvas can't parse, and a slide
+    // inherits it wherever it sets no colour of its own
+    stagingRoot.style.color = "#000000";
     stagingRoot.style.zIndex = "-1";
     document.body.appendChild(stagingRoot);
 

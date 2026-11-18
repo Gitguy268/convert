@@ -19,7 +19,19 @@ import Formats, { Category, isCategory } from "src/Formats.ts";
 import type { FileData, FileFormat, FormatHandler } from "../FormatHandler.ts";
 import type { ConvertContext } from "../ui/ProgressStore.js";
 import { changeExt } from "src/common/index.ts";
-import { createCanvas, drawWatermark } from "src/common/canvas.ts";
+import { createCanvas, drawWatermark, resolveSize } from "src/common/canvas.ts";
+import type { FormatOptions } from "src/Settings.ts";
+
+// modules that accept quality
+const QUALITY_MODULES: string[] = ["JPEG", "JP2", "WEBP", "JXL", "HEIC"];
+/** Upstream's resize plus the fork's edits (src/Settings.ts). */
+const RESIZE: FormatOptions = {
+  width: true,
+  height: true,
+  maxSize: true,
+  stripMetadata: true,
+  watermark: true,
+};
 
 /** Output types that hold one picture, so that several inputs give several files. */
 const SINGLE_PICTURE_TYPES = new Set(["image/png", "image/jpeg", "image/bmp"]);
@@ -45,10 +57,10 @@ class ImageMagickHandler implements FormatHandler {
   public readonly name = "ImageMagick";
   public supportedFormats: FileFormat[] = [];
   public ready = false;
+  public abortable = true;
 
   async init() {
-    const wasmBuffer = await fetch(magickWasmUrl).then((r) => r.arrayBuffer());
-    const wasmBytes = new Uint8Array(wasmBuffer);
+    const wasmBytes = await fetch(magickWasmUrl).then((r) => r.bytes());
 
     await initializeImageMagick(wasmBytes);
 
@@ -59,6 +71,7 @@ class ImageMagickHandler implements FormatHandler {
       if (formatName === "svg") return;
       if (formatName === "ttf") return;
       if (formatName === "otf") return;
+      if (formatName === "avi") return;
       let mimeType = format.mimeType || mime.getType(formatName);
       if (!mimeType && UNREGISTERED_FORMATS.has(formatName)) mimeType = `image/x-${formatName}`;
       if (
@@ -95,6 +108,14 @@ class ImageMagickHandler implements FormatHandler {
         internal: format.format,
         category,
         lossless: ["png", "bmp", "tiff"].includes(formatName),
+        options: !format.supportsWriting
+          ? undefined
+          : {
+              ...RESIZE,
+              ...(QUALITY_MODULES.includes(format.moduleFormat) && { quality: true }),
+              // a palette, which only ImageMagick writes (with oxipng after it)
+              ...(formatName === "png" && { colors: true }),
+            },
       });
     });
 
@@ -116,16 +137,15 @@ class ImageMagickHandler implements FormatHandler {
     inputFiles: FileData[],
     inputFormat: FileFormat,
     outputFormat: FileFormat,
-    args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     // all inputs go into one image collection and one output, which a palette doesn't ask for,
     // and which a format of one picture can't hold: several photos to PNG are several PNGs
     const singlePicture = SINGLE_PICTURE_TYPES.has(outputFormat.mime);
-    if ((ctx?.settings.colors || singlePicture) && inputFiles.length > 1) {
+    if ((ctx?.options.colors || singlePicture) && inputFiles.length > 1) {
       const outputs: FileData[] = [];
       for (const file of inputFiles) {
-        outputs.push(...(await this.doConvert([file], inputFormat, outputFormat, args, ctx)));
+        outputs.push(...(await this.doConvert([file], inputFormat, outputFormat, ctx)));
       }
       return outputs;
     }
@@ -134,6 +154,9 @@ class ImageMagickHandler implements FormatHandler {
 
     const inputSettings = new MagickReadSettings();
     inputSettings.format = inputMagickFormat;
+
+    const { width, height, quality, maxSize, stripMetadata, colors, watermark } =
+      ctx?.options ?? {};
 
     ctx?.log(`Initialising ImageMagick for ${inputFiles.length} files...`);
 
@@ -176,14 +199,18 @@ class ImageMagickHandler implements FormatHandler {
                 image.resize(geometry);
               }
 
-              const { quality, maxSize, stripMetadata, colors } = ctx?.settings ?? {};
+              if (width || height) {
+                const size = resolveSize(image.width, image.height, { width, height });
+                const geometry = new MagickGeometry(size.width, size.height);
+                geometry.ignoreAspectRatio = true;
+                image.resize(geometry);
+              }
               if (quality) image.quality = quality;
               // a geometry without flags fits inside the box and keeps the aspect ratio
               if (maxSize && Math.max(image.width, image.height) > maxSize) {
                 image.resize(new MagickGeometry(maxSize, maxSize));
               }
               if (stripMetadata) image.strip();
-              const watermark = ctx?.settings.watermark;
               if (watermark) {
                 // drawn by the browser and laid over the frame, because this build has no fonts
                 const overlay = createCanvas(image.width, image.height);
@@ -219,8 +246,8 @@ class ImageMagickHandler implements FormatHandler {
     });
 
     // quantising then optimising, as limitPNG chains pngquant and the lossless optimisers
-    if (ctx?.settings.colors && outputFormat.mime === "image/png") {
-      ctx.progress("Optimising the PNG...", 0.95);
+    if (colors && outputFormat.mime === "image/png") {
+      ctx?.progress("Optimising the PNG...", 0.95);
       bytes = new Uint8Array(await optimise(new Uint8Array(bytes).buffer));
     }
 

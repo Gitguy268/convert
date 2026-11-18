@@ -3,7 +3,7 @@ import { popupOpen } from "src/ui/PopupStore";
 import { HelpCircle } from "lucide-preact";
 import tippy from "tippy.js";
 import { useEffect, useRef } from "preact/hooks";
-import StyledButton from "src/ui/components/StyledButton";
+import StyledButton, { ButtonVariant } from "src/ui/components/StyledButton";
 
 export default function HelpButton() {
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -106,6 +106,36 @@ export default function HelpButton() {
               (.mmd) become SVG or PNG.
             </li>
             <li>
+              <strong>Remove metadata</strong> takes the camera, time, place and comments out of a
+              JPEG, PNG or WebP without touching a pixel, and lists what was there.{" "}
+              <strong>Encrypt (age)</strong> locks any file with a passphrase (set it in the
+              settings), and <strong>Decrypt</strong> opens it again.
+            </li>
+            <li>
+              <strong>Slides</strong> presents a Markdown note as a deck (a new slide at each
+              heading, or at each line of ---), and <strong>Board</strong> shows its tasks as a
+              Kanban board that saves the note back. <strong>Page in one file</strong> turns a saved
+              web page (MHTML, or the saved folder as a zip) into one HTML file.
+            </li>
+            <li>
+              <strong>Subset for the web</strong> keeps only the characters you need of a font (set
+              them in the settings; latin by default), and <strong>Specimen</strong> compares fonts
+              on one page. <strong>Theme from its colours</strong> makes a theme pack from a
+              picture. <strong>Redact</strong> and <strong>Sign</strong> are for PDFs: what is
+              redacted is gone from the file, not only covered.
+            </li>
+            <li>
+              <strong>3D model</strong> and <strong>3D print (STL)</strong> guess the shape of an
+              object from one picture of it. It is a small research model: one object on a plain
+              background works best.
+            </li>
+            <li>
+              <strong>Diagram to Mermaid</strong>, <strong>Receipt to CSV</strong> and{" "}
+              <strong>Subtitles</strong> run an AI model in your browser. The first time, it is
+              downloaded from Hugging Face (0.75 to 1.8 GB) after asking, and kept for next time;
+              nothing you convert leaves your device. The result opens in an editor.
+            </li>
+            <li>
               <strong>Check audio</strong> tells whether a music file is what it claims to be: a
               lossy file sold as lossless, fake hi-res, clipping, damage, and how loud it is. It
               reads MP3, FLAC, WAV, Ogg, M4A, AAC and AIFF as they are; other formats are first
@@ -150,9 +180,13 @@ export default function HelpButton() {
   };
 
   return (
-    <StyledButton buttonRef={btnRef} onClick={onHelpClick}>
-      <HelpCircle size={16} />
-      {" Help"}
+    <StyledButton
+      buttonRef={btnRef}
+      variant={ButtonVariant.Icon}
+      ariaLabel="Help & Info"
+      onClick={onHelpClick}
+    >
+      <HelpCircle size={18} aria-hidden="true" />
     </StyledButton>
   );
 }

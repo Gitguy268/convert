@@ -74,6 +74,7 @@ const Formats = {
 
   // vector
   SVG: new FormatDefinition("Scalable Vector Graphics", "svg", "svg", "image/svg+xml", [Category.IMAGE, Category.VECTOR, Category.DOCUMENT]),
+  VECTORDRAWABLE: new FormatDefinition("Android Vector Drawable", "vectordrawable", "xml", "application/xml", [Category.IMAGE, Category.VECTOR]),
 
   // video
   MP4: new FormatDefinition("MPEG-4 Part 14", "mp4", "mp4", "video/mp4", Category.VIDEO),
@@ -89,8 +90,6 @@ const Formats = {
   MP3: new FormatDefinition("MP3 Audio", "mp3", "mp3", "audio/mpeg", Category.AUDIO),
   WAV: new FormatDefinition("Waveform Audio File Format", "wav", "wav", "audio/wav", Category.AUDIO),
   OGG: new FormatDefinition("Ogg Audio", "ogg", "ogg", "audio/ogg", Category.AUDIO),
-  OGG_VORBIS: new FormatDefinition("Ogg Vorbis Audio", "ogg-vorbis", "ogg", "audio/ogg", Category.AUDIO),
-  OGG_OPUS: new FormatDefinition("Ogg Opus Audio", "ogg-opus", "ogg", "audio/ogg", Category.AUDIO),
   FLAC: new FormatDefinition("Free Lossless Audio Codec", "flac", "flac", "audio/flac", Category.AUDIO),
   M4A: new FormatDefinition("MPEG-4 Audio", "m4a", "m4a", "audio/mp4", Category.AUDIO),
   AAC: new FormatDefinition("raw ADTS AAC (Advanced Audio Coding)", "aac", "aac", "audio/aac", Category.AUDIO),
@@ -100,11 +99,23 @@ const Formats = {
   FLO: new FormatDefinition("Flo Audio", "flo", "flo", "audio/flo", Category.AUDIO),
   // audio - raw PCM
   U8: new FormatDefinition("PCM unsigned 8-bit", "u8", "u8", "audio/u8", Category.AUDIO),
+  S8: new FormatDefinition("PCM signed 8-bit", "s8", "s8", "audio/s8", Category.AUDIO),
+  U16LE: new FormatDefinition("PCM unsigned 16-bit little-endian", "u16le", "u16le", "audio/u16le", Category.AUDIO),
+  U24LE: new FormatDefinition("PCM unsigned 24-bit little-endian", "u24le", "u24le", "audio/u24le", Category.AUDIO),
+  U32LE: new FormatDefinition("PCM unsigned 32-bit little-endian", "u32le", "u32le", "audio/u32le", Category.AUDIO),
   S16LE: new FormatDefinition("PCM signed 16-bit little-endian", "s16le", "s16le", "audio/s16le", Category.AUDIO),
   S24LE: new FormatDefinition("PCM signed 24-bit little-endian", "s24le", "s24le", "audio/s24le", Category.AUDIO),
   S32LE: new FormatDefinition("PCM signed 32-bit little-endian", "s32le", "s32le", "audio/s32le", Category.AUDIO),
   F32LE: new FormatDefinition("PCM 32-bit floating-point little-endian", "f32le", "f32le", "audio/f32le", Category.AUDIO),
   F64LE: new FormatDefinition("PCM 64-bit floating-point little-endian", "f64le", "f64le", "audio/f64le", Category.AUDIO),
+  F32BE: new FormatDefinition("PCM 32-bit floating-point big-endian", "f32be", "f32be", "audio/f32be", Category.AUDIO),
+  F64BE: new FormatDefinition("PCM 64-bit floating-point big-endian", "f64be", "f64be", "audio/f64be", Category.AUDIO),
+  S16BE: new FormatDefinition("PCM signed 16-bit big-endian", "s16be", "s16be", "audio/s16be", Category.AUDIO),
+  S24BE: new FormatDefinition("PCM signed 24-bit big-endian", "s24be", "s24be", "audio/s24be", Category.AUDIO),
+  S32BE: new FormatDefinition("PCM signed 32-bit big-endian", "s32be", "s32be", "audio/s32be", Category.AUDIO),
+  U16BE: new FormatDefinition("PCM unsigned 16-bit big-endian", "u16be", "u16be", "audio/u16be", Category.AUDIO),
+  U24BE: new FormatDefinition("PCM unsigned 24-bit big-endian", "u24be", "u24be", "audio/u24be", Category.AUDIO),
+  U32BE: new FormatDefinition("PCM unsigned 32-bit big-endian", "u32be", "u32be", "audio/u32be", Category.AUDIO),
   // audio - sequenced music
   MIDI: new FormatDefinition("MIDI", "mid", "mid", "audio/midi", Category.AUDIO),
   RTTTL: new FormatDefinition("RTTTL", "rtttl", "rtttl", "audio/rtttl", Category.TEXT),
@@ -140,6 +151,8 @@ const Formats = {
   INI: new FormatDefinition("Initialization file", "ini", "ini", "text/plain", Category.DATA),
   CSV: new FormatDefinition("Comma Separated Values", "csv", "csv", "text/csv", Category.DATA),
   VCF: new FormatDefinition("vCard Contacts", "vcf", "vcf", "text/x-vcard", Category.DATA),
+  PBF: new FormatDefinition("Protobuf Binary Format", "pbf", "pbf", "application/protobuf", Category.DATA),
+  ICS: new FormatDefinition("iCalendar", "ics", "ics", "text/calendar", Category.DATA),
 
   // code
   PYTHON: new FormatDefinition("Python Script", "py", "py", "text/x-python", Category.CODE),
@@ -151,6 +164,17 @@ const Formats = {
   GO: new FormatDefinition("Go Source File", "go", "go", "text/x-go", Category.CODE),
   RUST: new FormatDefinition("Rust Source File", "rs", "rs", "text/rust", Category.CODE),
   ASM: new FormatDefinition("Assembly Source File", "asm", "s", "text/x-asm", Category.CODE),
+  // code - assembly per target, linux and windows differ in object format and calling convention
+  ASM_WASM: new FormatDefinition("WebAssembly Assembly Source File", "asm-wasm", "s", "text/x-asm", Category.CODE),
+  ASM_X86_64_LINUX: new FormatDefinition("x86-64 Linux Assembly Source File", "asm-x86-64-linux", "s", "text/x-asm", Category.CODE),
+  ASM_X86_LINUX: new FormatDefinition("x86 Linux Assembly Source File", "asm-x86-linux", "s", "text/x-asm", Category.CODE),
+  ASM_ARM64_LINUX: new FormatDefinition("ARM64 Linux Assembly Source File", "asm-arm64-linux", "s", "text/x-asm", Category.CODE),
+  ASM_ARM_LINUX: new FormatDefinition("ARM Linux Assembly Source File", "asm-arm-linux", "s", "text/x-asm", Category.CODE),
+  ASM_RISCV64_LINUX: new FormatDefinition("RISC-V 64-bit Linux Assembly Source File", "asm-riscv64-linux", "s", "text/x-asm", Category.CODE),
+  ASM_X86_64_WINDOWS: new FormatDefinition("x86-64 Windows Assembly Source File", "asm-x86-64-windows", "s", "text/x-asm", Category.CODE),
+  ASM_X86_WINDOWS: new FormatDefinition("x86 Windows Assembly Source File", "asm-x86-windows", "s", "text/x-asm", Category.CODE),
+  ASM_ARM64_WINDOWS: new FormatDefinition("ARM64 Windows Assembly Source File", "asm-arm64-windows", "s", "text/x-asm", Category.CODE),
+  ASM_ARM_WINDOWS: new FormatDefinition("ARM Windows Assembly Source File", "asm-arm-windows", "s", "text/x-asm", Category.CODE),
   CSS: new FormatDefinition("CSS Stylesheet", "css", "css", "text/css", Category.CODE),
   LESS: new FormatDefinition("LESS Stylesheet", "less", "less", "text/less", Category.CODE),
   SCSS: new FormatDefinition("SCSS Stylesheet", "scss", "scss", "text/x-scss", Category.CODE),
@@ -160,9 +184,16 @@ const Formats = {
   WASM: new FormatDefinition("WebAssembly Binary (Wasm)", "wasm", "wasm", "application/wasm", Category.CODE),
   // https://github.com/WebAssembly/spec/issues/1347
   WAT: new FormatDefinition("WebAssembly Text Format (WAT)", "wat", "wat", "text/plain", Category.CODE),
-  EXE: new FormatDefinition("Windows Portable Executable", "exe", "exe", "application/vnd.microsoft.portable-executable", Category.CODE),
+  EXE: new FormatDefinition("x86-64 Windows Portable Executable", "exe", "exe", "application/vnd.microsoft.portable-executable", Category.CODE),
+  EXE_X86: new FormatDefinition("x86 Windows Portable Executable", "exe-x86", "exe", "application/vnd.microsoft.portable-executable", Category.CODE),
+  EXE_ARM64: new FormatDefinition("ARM64 Windows Portable Executable", "exe-arm64", "exe", "application/vnd.microsoft.portable-executable", Category.CODE),
+  EXE_ARM: new FormatDefinition("ARM Windows Portable Executable", "exe-arm", "exe", "application/vnd.microsoft.portable-executable", Category.CODE),
   DLL: new FormatDefinition("Dynamic-Link Library", "dll", "dll", "application/vnd.microsoft.portable-executable", Category.CODE),
   ELF: new FormatDefinition("x86-64 Linux Executable and Linkable Format", "elf", "elf", "application/x-elf", Category.CODE),
+  ELF_X86: new FormatDefinition("x86 Linux Executable and Linkable Format", "elf-x86", "elf", "application/x-elf", Category.CODE),
+  ELF_ARM64: new FormatDefinition("ARM64 Linux Executable and Linkable Format", "elf-arm64", "elf", "application/x-elf", Category.CODE),
+  ELF_ARM: new FormatDefinition("ARM Linux Executable and Linkable Format", "elf-arm", "elf", "application/x-elf", Category.CODE),
+  ELF_RISCV64: new FormatDefinition("RISC-V 64-bit Linux Executable and Linkable Format", "elf-riscv64", "elf", "application/x-elf", Category.CODE),
 
   // documents
   HTML: new FormatDefinition("Hypertext Markup Language", "html", "html", "text/html", [Category.DOCUMENT, Category.TEXT]),
@@ -223,10 +254,10 @@ const Formats = {
   STL: new FormatDefinition("Stereolithography", "stl", "stl", "model/stl", Category.MODEL),
   PLY: new FormatDefinition("Polygon File Format", "ply", "ply", "model/x-ply", Category.MODEL),
   USDZ: new FormatDefinition("Universal Scene Description Package", "usdz", "usdz", "model/vnd.usdz+zip", Category.MODEL),
-  THREE_MF: new FormatDefinition("3D Manufacturing Format", "3mf", "3mf", "model/3mf", Category.MODEL),
-  FBX: new FormatDefinition("Autodesk Filmbox", "fbx", "fbx", "application/vnd.autodesk.fbx", Category.MODEL),
-  DAE: new FormatDefinition("Collada Digital Asset Exchange", "dae", "dae", "model/vnd.collada+xml", Category.MODEL),
   TDS: new FormatDefinition("Autodesk 3D Studio", "3ds", "3ds", "image/x-3ds", Category.MODEL),
+  FBX: new FormatDefinition("Autodesk FBX", "fbx", "fbx", "application/vnd.autodesk.fbx", Category.MODEL),
+  DAE: new FormatDefinition("COLLADA", "dae", "dae", "model/vnd.collada+xml", Category.MODEL),
+  THREEMF: new FormatDefinition("3D Manufacturing Format", "3mf", "3mf", "model/3mf", Category.MODEL),
   BBMODEL: new FormatDefinition("Blockbench Project", "bbmodel", "bbmodel", "application/json", Category.MODEL),
 
   // databases
@@ -243,7 +274,6 @@ const Formats = {
   MC_MAP_GRID: new FormatDefinition("Minecraft Map File (Grid)", "mcmap_grid", "dat", "application/x-minecraft-map", Category.DATA),
   MC_LANG: new FormatDefinition("Minecraft Language Localization File", "minecraft-lang", "lang", "text/plain", Category.TEXT),
   BRARCHIVE: new FormatDefinition("Minecraft Bedrock Archive", "brarchive", "brarchive", "image/x-brarchive", Category.ARCHIVE),
-  MRPACK: new FormatDefinition("Modrinth Modpack", "mrpack", "mrpack", "application/x-modrinth-modpack+zip", Category.ARCHIVE),
   // games - packages
   SB3: new FormatDefinition("Scratch 3 Project", "sb3", "sb3", "application/x.scratch.sb3", Category.ARCHIVE),
   LOVE: new FormatDefinition("LÖVE Game Package", "love", "love", "application/zip", Category.ARCHIVE),
@@ -266,6 +296,9 @@ const Formats = {
   CMAP: new FormatDefinition("Celaria Map", "cmap", "cmap", "application/x-celaria-map", Category.DATA),
   OM_PUZZLE: new FormatDefinition("Opus Magnum puzzle", "puzzle", "puzzle", "application/x-opus-magnum-puzzle", Category.DATA),
   OM_MOLECULE: new FormatDefinition("Opus Magnum molecule", "molecule", "molecule", "application/x-opus-magnum-molecule", Category.DATA),
+  GMD: new FormatDefinition("GDShare Level", "gmd", "gmd", "application/x-gmd+xml", Category.DATA),
+  GMD2: new FormatDefinition("GDShare Level Archive", "gmd2", "gmd2", "application/x-gmd2+zip", [Category.ARCHIVE, Category.DATA]),
+  GDLVL: new FormatDefinition("Geometry Dash Level", "gdlvl", "gdlvl", "application/x-gdlvl", Category.DATA),
 };
 
 export default Formats;
@@ -284,3 +317,7 @@ export const AUDIO_FILES = [
   Formats.AAC.builder("aac"),
   Formats.AIFF.builder("aiff"),
 ].map((format) => format.from());
+export const SpecialFormats = {
+  /** This format is a placeholder for any formats being accepted. */
+  ANY: new FormatDefinition("ANY", "ANY", "ANY", "ANY", []),
+};

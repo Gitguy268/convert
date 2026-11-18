@@ -195,6 +195,8 @@ class pandocHandler implements FormatHandler {
       if (format === "revealjs") continue;
       // Typst compilation is handled by the dedicated Typst handler.
       if (format === "pdf") continue;
+      // Pandoc's own AST serializations are waterfalls (see docs/design/WATERFALLS.md)
+      if (format === "json" || format === "xml" || format === "native") continue;
       // Adjust plaintext format name to match other handlers
       if (format === "plain") format = "text";
       const name = pandocHandler.formatNames.get(format) || format;
@@ -242,7 +244,6 @@ class pandocHandler implements FormatHandler {
       this.supportedFormats.splice(typstIndex, 1);
       this.supportedFormats.splice(1, 0, typstFormat);
     }
-    // pandoc internal formats is almost always never what the user wants
     const jsonXmlFormats = this.supportedFormats.filter(
       (c) => c.mime === "application/json" || c.mime === "application/xml",
     );
@@ -258,7 +259,6 @@ class pandocHandler implements FormatHandler {
     inputFiles: FileData[],
     inputFormat: FileFormat,
     outputFormat: FileFormat,
-    args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     if (!this.ready || !this.query || !this.convert)
@@ -323,8 +323,7 @@ class pandocHandler implements FormatHandler {
         continue;
       }
 
-      const arrayBuffer = await outputBlob.arrayBuffer();
-      let bytes = new Uint8Array(arrayBuffer);
+      let bytes = await outputBlob.bytes();
       if (outputFormat.internal === "typst") {
         const normalizedTypst = normalizeTypstAssetPaths(
           postprocessTypstFromPandoc(decode(bytes)),

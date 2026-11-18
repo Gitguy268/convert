@@ -3,7 +3,7 @@
     "target": "ES2022",
     "useDefineForClassFields": true,
     "module": "ESNext",
-    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "types": ["vite/client", "node", "@types/pdfkit"],
     "skipLibCheck": true,
     /* Bundler mode */
@@ -32,6 +32,7 @@
       "turbowarp-unpackager": ["./built/turbowarp-unpackager/unpackager"],
       "qoi-fu": ["./built/qoi-fu/transpiled/QOI.js"],
       "qoa-fu": ["./built/qoa-fu/transpiled/QOA.js"],
+      "built/clang/llvm.js": ["./built/clang/llvm.d.ts", "./src/handlers/clang/llvm.d.ts"],
       // this is driving me nuts
       "*": ["./*"]
     },

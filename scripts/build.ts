@@ -1,11 +1,10 @@
 import { $ } from "bun";
-import { relative } from "path";
 import { defineCommand, runMain } from "citty";
 import { addSource } from "./build/add";
 import { assembleAll, assembleArgs } from "./build/assemble";
 import {
   ROOT_SCOPE,
-  findPrebuilts,
+  findPrebuilt,
   loadRequirements,
   selectArgs,
   selectRequirements,
@@ -15,6 +14,8 @@ import {
 import { hashInputs } from "./build/hash";
 import { editPatch, finishPatch, patchStatus, savePatch } from "./build/patch";
 import { prebuildAll, prebuildArgs } from "./build/prebuild";
+import { adoptAll } from "./build/adopt";
+import { checkUploads, uploadAll } from "./build/release";
 import { isPrebuilt, isSubrecipe, type RequirementsConfig } from "./build/types";
 
 // a failed command already streamed its own stderr, so skip the ShellError dump of the buffered output
@@ -29,17 +30,20 @@ async function quietShellErrors(run: () => Promise<void>) {
 }
 
 const assemble = defineCommand({
-  meta: { name: "assemble", description: "Prepare requirements for use" },
+  meta: {
+    name: "assemble",
+    description: "Prepare requirements for use, all but the optional ones by default",
+  },
   args: { ...selectArgs, ...assembleArgs },
   run: ({ args }) =>
     quietShellErrors(async () => {
       await import("./remove-old");
       const start = performance.now();
-      const requirements = selectRequirements(
-        await loadRequirements(ROOT_SCOPE.recipeDir),
-        args._,
-        args.all,
-      );
+      const config = await loadRequirements(ROOT_SCOPE.recipeDir);
+      const requirements =
+        args._.length || args.all
+          ? selectRequirements(config, args._, args.all)
+          : config.filter((requirement) => !requirement.optional);
       await assembleAll(requirements, ROOT_SCOPE, args);
       const end = performance.now();
       console.log(`Assembled in ${(end - start).toFixed(2)} ms.`);
@@ -71,17 +75,11 @@ async function checkAll(requirements: RequirementsConfig, scope: Scope) {
   for (const requirement of requirements) {
     if (isPrebuilt(requirement)) {
       const inputs = await hashInputs(requirement, scope);
-      const prebuilts = await findPrebuilts(requirement, scope);
-      if (!prebuilts.some((prebuilt) => prebuilt.inputs === inputs)) {
+      if (!(await findPrebuilt(requirement, scope, inputs))) {
         throw new Error(
           `Prebuilt ${requirement.name} is missing or stale, run \`bun run build:prebuild ${requirement.name}\`.`,
         );
       }
-      const stale = prebuilts.find((prebuilt) => prebuilt.inputs !== inputs);
-      if (stale)
-        throw new Error(
-          `Found stale prebuilt ${relative(scope.prebuiltDir, stale.path)}, run \`bun run build:prebuild ${requirement.name}\`.`,
-        );
     } else if (isSubrecipe(requirement)) {
       const sub = subrecipeScope(scope, requirement.name);
       await checkAll(await loadRequirements(sub.recipeDir), sub);
@@ -95,6 +93,30 @@ const check = defineCommand({
     await checkAll(await loadRequirements(ROOT_SCOPE.recipeDir), ROOT_SCOPE);
     console.log("Up to date.");
   },
+});
+
+const upload = defineCommand({
+  meta: { name: "upload", description: "Upload new prebuilts to the github release" },
+  args: {
+    repo: {
+      type: "string",
+      description: "Upload to the release of this repo without asking, like your fork",
+    },
+    check: {
+      type: "boolean",
+      description: "Fail unless every prebuilt is uploaded and adopted",
+    },
+    adopt: {
+      type: "boolean",
+      description: "Verify prebuilts staged on forks and move them to our release",
+    },
+  },
+  run: ({ args }) =>
+    quietShellErrors(async () => {
+      if (args.check) await checkUploads();
+      else if (args.adopt) await adoptAll();
+      else await uploadAll(args.repo);
+    }),
 });
 
 const nameArg = {
@@ -161,7 +183,7 @@ const add = defineCommand({
 
 const main = defineCommand({
   meta: { name: "convert-build", description: "The convert build system" },
-  subCommands: { assemble, prebuild, check, patch, add },
+  subCommands: { assemble, prebuild, check, upload, patch, add },
 });
 
 await runMain(main);

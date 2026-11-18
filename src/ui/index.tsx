@@ -1,11 +1,12 @@
+import "../polyfills.ts";
 import { render } from "preact";
 
 import UploadPage from "./pages/Upload";
 import ConversionPage from "./pages/Conversion";
 import { initTheme } from "./ThemeStore";
 import Popup from "./components/Popup";
+import StudioSheet from "./components/Studio";
 import FullPageDropOverlay from "./components/FullPageDropOverlay";
-import { initMode } from "./ModeStore";
 import { CurrentPage, Pages } from "./AppState";
 import "./components/StyledButton/index.css";
 import "built/liquid-glass-ui/src/liquid-glass.css";
@@ -22,6 +23,7 @@ function App() {
       {CurrentPage.value === Pages.Upload && <UploadPage />}
       <FullPageDropOverlay />
       <Popup />
+      <StudioSheet />
     </>
   );
 }
@@ -29,4 +31,3 @@ function App() {
 render(<App />, document.getElementById("app")!);
 
 initTheme();
-initMode();

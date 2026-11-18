@@ -147,7 +147,6 @@ export class faviconHandler implements FormatHandler {
     inputFiles: FileData[],
     _inputFormat: FileFormat,
     _outputFormat: FileFormat,
-    _args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     const outputFiles: FileData[] = [];
@@ -194,7 +193,6 @@ export class collageHandler implements FormatHandler {
     inputFiles: FileData[],
     _inputFormat: FileFormat,
     _outputFormat: FileFormat,
-    _args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     ctx?.progress("Reading the pictures...", 0);
@@ -235,10 +233,197 @@ export class collageHandler implements FormatHandler {
   }
 }
 
-/** Puts a screenshot on a gradient, with rounded corners and a shadow, ready to share. */
+/** The backgrounds a framed screenshot can sit on: two colours of a diagonal gradient. */
+export const FRAME_BACKGROUNDS: Record<string, [string, string] | null> = {
+  sky: ["#8ec5fc", "#e0c3fc"],
+  sunset: ["#ff9a8b", "#ffd36e"],
+  mint: ["#84fab0", "#8fd3f4"],
+  graphite: ["#232526", "#5b6066"],
+  white: ["#ffffff", "#ffffff"],
+  transparent: null,
+};
+
+/** Sizes of the window around a framed screenshot, in pixels, for a picture of this size. */
+export function frameLayout(width: number, height: number, style: string) {
+  const longest = Math.max(width, height);
+  // the window's parts grow with the picture, so they look the same at any size
+  const u = Math.max(1, Math.round(longest / 900));
+  const pad = Math.round(longest * 0.08);
+  const bar = style === "card" ? 0 : style === "Win98 window" ? 20 * u : 28 * u;
+  const border = style === "Win98 window" ? 4 * u : 0;
+  const windowWidth = width + 2 * border;
+  const windowHeight = height + bar + 2 * border + (style === "Win98 window" ? 2 * u : 0);
+  return {
+    u,
+    pad,
+    bar,
+    border,
+    windowWidth,
+    windowHeight,
+    width: windowWidth + 2 * pad,
+    height: windowHeight + 2 * pad,
+  };
+}
+
+type Ctx = OffscreenCanvasRenderingContext2D;
+
+/** A raised or sunken Windows 98 edge: light on the top left, dark on the bottom right. */
+function bevel(c: Ctx, x: number, y: number, w: number, h: number, u: number, sunken = false) {
+  const [light, dark] = sunken ? ["#808080", "#ffffff"] : ["#ffffff", "#404040"];
+  c.fillStyle = dark;
+  c.fillRect(x, y, w, h);
+  c.fillStyle = light;
+  c.fillRect(x, y, w - u, h - u);
+  c.fillStyle = sunken ? "#ffffff" : "#808080";
+  c.fillRect(x + u, y + u, w - 2 * u, h - 2 * u);
+  c.fillStyle = sunken ? "#808080" : "#dfdfdf";
+  c.fillRect(x + u, y + u, w - 3 * u, h - 3 * u);
+  c.fillStyle = "#c0c0c0";
+  c.fillRect(x + 2 * u, y + 2 * u, w - 4 * u, h - 4 * u);
+}
+
+function drawWin98(
+  c: Ctx,
+  image: ImageBitmap,
+  x: number,
+  y: number,
+  title: string,
+  l: ReturnType<typeof frameLayout>,
+) {
+  const { u, bar, border, windowWidth: w, windowHeight: h } = l;
+  bevel(c, x, y, w, h, u);
+  const barX = x + 3 * u;
+  const barY = y + 3 * u;
+  const barW = w - 6 * u;
+  const gradient = c.createLinearGradient(barX, 0, barX + barW, 0);
+  gradient.addColorStop(0, "#000080");
+  gradient.addColorStop(1, "#1084d0");
+  c.fillStyle = gradient;
+  c.fillRect(barX, barY, barW, bar - 2 * u);
+  c.fillStyle = "#ffffff";
+  c.font = `bold ${11 * u}px "MS Sans Serif", Tahoma, Arial, sans-serif`;
+  c.textBaseline = "middle";
+  c.fillText(title, barX + 4 * u, barY + (bar - 2 * u) / 2, barW - 70 * u);
+  // minimise, maximise and close
+  const size = bar - 6 * u;
+  for (let i = 0; i < 3; i++) {
+    const bx = barX + barW - (3 - i) * (size + 2 * u) - (i === 2 ? 0 : 2 * u);
+    const by = barY + 2 * u;
+    bevel(c, bx, by, size + 2 * u, size, u);
+    c.fillStyle = "#000000";
+    const cx = bx + (size + 2 * u) / 2;
+    const cy = by + size / 2;
+    const s = Math.max(2, size / 4);
+    if (i === 0) c.fillRect(cx - s, cy + s - u, 2 * s, 2 * u);
+    else if (i === 1) {
+      c.fillRect(cx - s, cy - s, 2 * s, 2 * u);
+      c.strokeStyle = "#000000";
+      c.lineWidth = u;
+      c.strokeRect(cx - s + u / 2, cy - s + u / 2, 2 * s - u, 2 * s - u);
+    } else {
+      c.strokeStyle = "#000000";
+      c.lineWidth = 1.5 * u;
+      c.beginPath();
+      c.moveTo(cx - s, cy - s);
+      c.lineTo(cx + s, cy + s);
+      c.moveTo(cx + s, cy - s);
+      c.lineTo(cx - s, cy + s);
+      c.stroke();
+    }
+  }
+  const ix = x + border;
+  const iy = y + border + bar;
+  c.fillStyle = "#808080";
+  c.fillRect(ix - u, iy - u, image.width + 2 * u, image.height + 2 * u);
+  c.drawImage(image, ix, iy);
+}
+
+function drawMac(
+  c: Ctx,
+  image: ImageBitmap,
+  x: number,
+  y: number,
+  title: string,
+  l: ReturnType<typeof frameLayout>,
+  glass: boolean,
+) {
+  const { u, bar, windowWidth: w, windowHeight: h } = l;
+  const radius = (glass ? 18 : 10) * u;
+  c.save();
+  c.shadowColor = "rgba(0, 0, 0, 0.35)";
+  c.shadowBlur = l.pad / 2;
+  c.shadowOffsetY = l.pad / 6;
+  c.beginPath();
+  c.roundRect(x, y, w, h, radius);
+  c.fillStyle = glass ? "rgba(255, 255, 255, 0.28)" : "#ececec";
+  c.fill();
+  c.restore();
+
+  c.save();
+  c.beginPath();
+  c.roundRect(x, y, w, h, radius);
+  c.clip();
+  if (glass) {
+    // frosted: the bar shows a blurred copy of the picture's top edge through white
+    c.filter = `blur(${8 * u}px)`;
+    c.drawImage(image, 0, 0, image.width, Math.min(image.height, bar * 2), x, y - bar, w, bar * 3);
+    c.filter = "none";
+    c.fillStyle = "rgba(255, 255, 255, 0.55)";
+    c.fillRect(x, y, w, bar);
+  } else {
+    const gradient = c.createLinearGradient(0, y, 0, y + bar);
+    gradient.addColorStop(0, "#f6f6f6");
+    gradient.addColorStop(1, "#e3e3e3");
+    c.fillStyle = gradient;
+    c.fillRect(x, y, w, bar);
+  }
+  c.drawImage(image, x, y + bar);
+  c.restore();
+
+  const lights = glass
+    ? ["rgba(255,255,255,0.9)", "rgba(255,255,255,0.7)", "rgba(255,255,255,0.5)"]
+    : ["#ff5f57", "#febc2e", "#28c840"];
+  for (const [i, colour] of lights.entries()) {
+    c.beginPath();
+    c.arc(x + (14 + i * 20) * u, y + bar / 2, 6 * u, 0, Math.PI * 2);
+    c.fillStyle = colour;
+    c.fill();
+    if (!glass) {
+      c.strokeStyle = "rgba(0, 0, 0, 0.12)";
+      c.lineWidth = u;
+      c.stroke();
+    }
+  }
+  if (title) {
+    c.fillStyle = glass ? "rgba(20, 20, 30, 0.85)" : "#4d4d4d";
+    c.font = `600 ${13 * u}px -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif`;
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillText(title, x + w / 2, y + bar / 2, w - 160 * u);
+    c.textAlign = "start";
+  }
+  c.save();
+  c.beginPath();
+  c.roundRect(x + u / 2, y + u / 2, w - u, h - u, radius);
+  c.strokeStyle = glass ? "rgba(255, 255, 255, 0.75)" : "rgba(0, 0, 0, 0.18)";
+  c.lineWidth = u;
+  c.stroke();
+  c.restore();
+}
+
+/**
+ * Puts a screenshot on a background, as a card with rounded corners and a shadow or inside a
+ * window: Windows 98, liquid glass or macOS.
+ */
 export class frameHandler implements FormatHandler {
   public readonly name = "frame";
-  public supportedFormats = [...PICTURES, FRAMED.builder("png").lossless().to()];
+  public supportedFormats = [
+    ...PICTURES,
+    FRAMED.builder("png")
+      .lossless()
+      .options({ frameStyle: true, frameTitle: true, background: true })
+      .to(),
+  ];
   public ready = false;
 
   async init() {
@@ -249,43 +434,60 @@ export class frameHandler implements FormatHandler {
     inputFiles: FileData[],
     _inputFormat: FileFormat,
     _outputFormat: FileFormat,
-    _args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
+    const style = (ctx?.options.frameStyle as string | undefined) ?? "card";
+    const colours = FRAME_BACKGROUNDS[(ctx?.options.background as string | undefined) ?? "sky"];
     const outputFiles: FileData[] = [];
     for (const [i, file] of inputFiles.entries()) {
       ctx?.throwIfAborted();
       ctx?.progress(`Framing ${file.name}...`, i / inputFiles.length);
       const image = await decode(file);
       const { width: w, height: h } = image;
-      const longest = Math.max(w, h);
-      const pad = Math.round(longest * 0.08);
-      const radius = Math.max(4, Math.round(longest * 0.012));
-      const bundle = createCanvas(w + 2 * pad, h + 2 * pad);
+      const layout = frameLayout(w, h, style);
+      const { pad } = layout;
+      const bundle = createCanvas(layout.width, layout.height);
       const { ctx: c, canvas } = bundle;
 
-      const gradient = c.createLinearGradient(0, 0, canvas.width, canvas.height);
-      gradient.addColorStop(0, "#8ec5fc");
-      gradient.addColorStop(1, "#e0c3fc");
-      c.fillStyle = gradient;
-      c.fillRect(0, 0, canvas.width, canvas.height);
+      if (colours) {
+        const gradient = c.createLinearGradient(0, 0, canvas.width, canvas.height);
+        gradient.addColorStop(0, colours[0]);
+        gradient.addColorStop(1, colours[1]);
+        c.fillStyle = gradient;
+        c.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      const title = (ctx?.options.frameTitle as string | undefined) ?? stripExt(file.name);
 
-      c.save();
-      c.shadowColor = "rgba(0, 0, 0, 0.35)";
-      c.shadowBlur = pad / 2;
-      c.shadowOffsetY = pad / 6;
-      c.beginPath();
-      c.roundRect(pad, pad, w, h, radius);
-      c.fillStyle = "white";
-      c.fill();
-      c.restore();
+      if (style === "Win98 window") {
+        c.save();
+        c.shadowColor = "rgba(0, 0, 0, 0.35)";
+        c.shadowBlur = pad / 3;
+        c.shadowOffsetX = c.shadowOffsetY = pad / 10;
+        c.fillStyle = "#c0c0c0";
+        c.fillRect(pad, pad, layout.windowWidth, layout.windowHeight);
+        c.restore();
+        drawWin98(c, image, pad, pad, title, layout);
+      } else if (style === "macOS window" || style === "liquid glass window") {
+        drawMac(c, image, pad, pad, title, layout, style === "liquid glass window");
+      } else {
+        const radius = Math.max(4, Math.round(Math.max(w, h) * 0.012));
+        c.save();
+        c.shadowColor = "rgba(0, 0, 0, 0.35)";
+        c.shadowBlur = pad / 2;
+        c.shadowOffsetY = pad / 6;
+        c.beginPath();
+        c.roundRect(pad, pad, w, h, radius);
+        c.fillStyle = "white";
+        c.fill();
+        c.restore();
 
-      c.save();
-      c.beginPath();
-      c.roundRect(pad, pad, w, h, radius);
-      c.clip();
-      c.drawImage(image, pad, pad);
-      c.restore();
+        c.save();
+        c.beginPath();
+        c.roundRect(pad, pad, w, h, radius);
+        c.clip();
+        c.drawImage(image, pad, pad);
+        c.restore();
+      }
       image.close();
 
       outputFiles.push({
@@ -314,7 +516,6 @@ export class halftoneHandler implements FormatHandler {
     inputFiles: FileData[],
     _inputFormat: FileFormat,
     _outputFormat: FileFormat,
-    _args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     const outputFiles: FileData[] = [];
@@ -433,7 +634,6 @@ export class asciiHtmlHandler implements FormatHandler {
     inputFiles: FileData[],
     _inputFormat: FileFormat,
     _outputFormat: FileFormat,
-    _args?: string[],
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     const outputFiles: FileData[] = [];

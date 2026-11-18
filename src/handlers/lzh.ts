@@ -1,41 +1,24 @@
 import type { FileData, FileFormat, FormatHandler } from "../FormatHandler.ts";
 import { LZHDecoder } from "./lzh/decoder.ts";
 import { LZHEncoder, type LHAFileInput } from "./lzh/encoder.ts";
-import JSZip from "jszip";
-import Formats from "src/Formats.ts";
+import Formats, { SpecialFormats } from "src/Formats.ts";
 import { InitializationError } from "src/errors.ts";
-import { changeExt, encode } from "src/common/index.ts";
-
-// Convert bytes to base64 string
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
-
-// Sanitize all string values to ensure valid JSON
-function sanitizeString(str: string): string {
-  // oxlint-disable-next-line eslint/no-control-regex
-  return str.replace(/[\x00-\x1F\x7F-\x9F]/g, "").trim() || "unknown";
-}
+import { extractedParent, filePath, splitPath } from "src/common/path.ts";
 
 /**
  * LZH/LHA Archive Handler
  * Handles LZH (Lempel-Ziv-Huffman) and LHA archive formats
  *
  * Supports:
- * - Extracting LZH/LHA archives to individual files
- * - Converting LZH/LHA archives to ZIP format
+ * - Extracting LZH/LHA archives to individual files (SpecialFormats.ANY)
+ * - Packing any input(s) into a single LZH archive
  * - Multiple compression methods (lh0, lh1, lh4, lh5, lh6, lh7)
  */
-export class lzhHandler implements FormatHandler {
+export default class lzhHandler implements FormatHandler {
   public readonly name = "lzh";
   public supportedFormats = [
     Formats.LZH.builder("lzh").lossless().fromTo(),
-    Formats.ZIP.builder("zip").lossless().fromTo(),
-    Formats.JSON.builder("json").to(),
+    SpecialFormats.ANY.builder("ANY").lossless().fromTo(),
   ];
   public ready = false;
 
@@ -52,173 +35,30 @@ export class lzhHandler implements FormatHandler {
       throw new InitializationError("Handler not initialized.");
     }
 
-    const outputFiles: FileData[] = [];
-
-    // Convert LZH/LHA to JSON (archive listing with data)
-    if (inputFormat.internal === "lzh" && outputFormat.internal === "json") {
+    if (inputFormat.internal === "lzh" && outputFormat.mime === SpecialFormats.ANY.mime) {
+      const outputFiles: FileData[] = [];
       for (const inputFile of inputFiles) {
+        const parent = extractedParent(inputFile, inputFiles.length > 1);
         const decoder = new LZHDecoder(inputFile.bytes);
-        const extractedFiles = decoder.extractAll();
-
-        const archiveInfo = {
-          archiveName: sanitizeString(inputFile.name),
-          fileCount: extractedFiles.length,
-          totalOriginalSize: extractedFiles.reduce((sum, f) => sum + f.originalSize, 0),
-          totalCompressedSize: extractedFiles.reduce((sum, f) => sum + f.compressedSize, 0),
-          files: extractedFiles.map((file) => ({
-            filename: sanitizeString(file.filename),
-            originalSize: file.originalSize,
-            compressedSize: file.compressedSize,
-            timestamp: file.timestamp.toISOString(),
-            compressionMethod: sanitizeString(file.method),
-            crc: `0x${file.crc.toString(16).toUpperCase().padStart(4, "0")}`,
-            compressionRatio:
-              file.compressedSize > 0 && file.originalSize > 0
-                ? ((1 - file.compressedSize / file.originalSize) * 100).toFixed(2) + "%"
-                : "0%",
-            isDirectory: file.method === "-lhd-" || file.filename.endsWith("/"),
-            data: bytesToBase64(file.data),
-          })),
-        };
-
-        const jsonStr = JSON.stringify(archiveInfo, null, 2);
-
-        outputFiles.push({
-          name: changeExt(inputFile.name, "json"),
-          bytes: encode(jsonStr),
-        });
-      }
-    } else if (inputFormat.internal === "lzh" && outputFormat.internal === "zip") {
-      // Convert to ZIP
-      for (const inputFile of inputFiles) {
-        const decoder = new LZHDecoder(inputFile.bytes);
-        const extractedFiles = decoder.extractAll();
-
-        const zip = new JSZip();
-
-        for (const file of extractedFiles) {
+        for (const file of decoder.extractAll()) {
           // Skip directory entries
-          if (file.method === "-lhd-" || file.filename.endsWith("/")) {
-            continue;
-          }
-
-          zip.file(file.filename, file.data, {
-            date: file.timestamp,
-          });
-        }
-
-        const zipData = await zip.generateAsync({
-          type: "uint8array",
-          compression: "DEFLATE",
-          compressionOptions: { level: 9 },
-        });
-
-        outputFiles.push({
-          name: changeExt(inputFile.name, "zip"),
-          bytes: zipData,
-        });
-      }
-    } else if (inputFormat.internal === "lzh") {
-      // Extract all files individually
-      for (const inputFile of inputFiles) {
-        const decoder = new LZHDecoder(inputFile.bytes);
-        const extractedFiles = decoder.extractAll();
-
-        for (const file of extractedFiles) {
-          // Skip directory entries
-          if (file.method === "-lhd-" || file.filename.endsWith("/")) {
-            continue;
-          }
-
-          // Normalize the filename (remove path separators if needed)
-          const filename = file.filename.replace(/\\/g, "/").split("/").pop() || file.filename;
-
-          outputFiles.push({
-            name: filename,
-            bytes: file.data,
-          });
+          if (file.method === "-lhd-" || file.filename.endsWith("/")) continue;
+          outputFiles.push({ ...splitPath(file.filename, parent), bytes: file.data });
         }
       }
-    } else if (inputFormat.internal === "zip" && outputFormat.internal === "lzh") {
-      // Convert ZIP to LZH/LHA
-      for (const inputFile of inputFiles) {
-        const zip = new JSZip();
-        await zip.loadAsync(inputFile.bytes);
-
-        const filesToArchive: LHAFileInput[] = [];
-
-        // Extract all files from ZIP
-        for (const [filename, zipEntry] of Object.entries(zip.files)) {
-          if (!zipEntry.dir) {
-            const data = await zipEntry.async("uint8array");
-            filesToArchive.push({
-              filename: filename,
-              data: data,
-              timestamp: zipEntry.date || new Date(),
-            });
-          }
-        }
-
-        // Create LZH archive
-        const encoder = new LZHEncoder();
-        const lzhData = encoder.create(filesToArchive);
-
-        outputFiles.push({
-          name: changeExt(inputFile.name, outputFormat.extension),
-          bytes: lzhData,
-        });
-      }
-    } else {
-      throw new TypeError(
-        `Unsupported conversion: ${inputFormat.format} to ${outputFormat.format}`,
-      );
+      return outputFiles;
     }
 
-    return outputFiles;
-  }
-}
-
-// Packs any input(s) into a singular LZH file. Separated for tree purposes.
-export class lzh2Handler implements FormatHandler {
-  public readonly name = "lzh2";
-  public supportedFormats = [Formats.LZH.builder("lzh").lossless().to()];
-  public supportAnyInput = true;
-  public ready = false;
-
-  async init() {
-    this.ready = true;
-  }
-
-  async doConvert(
-    inputFiles: FileData[],
-    inputFormat: FileFormat,
-    outputFormat: FileFormat,
-  ): Promise<FileData[]> {
-    if (!this.ready) {
-      throw new Error("Handler not initialized");
-    }
-
-    const outputFiles: FileData[] = [];
-
-    // Convert multiple files to LZH/LHA archive
-    const filesToArchive: LHAFileInput[] = [];
-
-    for (const inputFile of inputFiles) {
-      filesToArchive.push({
-        filename: inputFile.name,
+    if (outputFormat.internal === "lzh") {
+      const filesToArchive: LHAFileInput[] = inputFiles.map((inputFile) => ({
+        filename: filePath(inputFile),
         data: inputFile.bytes,
         timestamp: new Date(),
-      });
+      }));
+      const lzhData = new LZHEncoder().create(filesToArchive);
+      return [{ name: "archive." + outputFormat.extension, bytes: lzhData }];
     }
 
-    const encoder = new LZHEncoder();
-    const lzhData = encoder.create(filesToArchive);
-
-    outputFiles.push({
-      name: "archive." + outputFormat.extension,
-      bytes: lzhData,
-    });
-
-    return outputFiles;
+    throw new TypeError(`Unsupported conversion: ${inputFormat.format} to ${outputFormat.format}`);
   }
 }

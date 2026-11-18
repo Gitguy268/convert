@@ -1,9 +1,10 @@
 import { afterAll, expect, test } from "bun:test";
 import puppeteer from "puppeteer";
+import { preview } from "vite";
 import type { FileData, FormatHandler, FileFormat, ConvertPathNode } from "../src/FormatHandler.js";
 import Formats from "../src/Formats.js";
 import type { HandlerName } from "../src/handlers/index.js";
-import type { ConversionSettings } from "../src/ConversionSettings.js";
+import type { ConvertOptions } from "../src/Settings.js";
 
 declare global {
   interface Window {
@@ -14,8 +15,7 @@ declare global {
       files: FileData[],
       from: ConvertPathNode,
       to: ConvertPathNode,
-      signal?: AbortSignal,
-      settings?: ConversionSettings,
+      options?: { abort?: AbortSignal; settings?: ConvertOptions },
     ) => Promise<{
       files: FileData[];
       path: ConvertPathNode[];
@@ -23,27 +23,26 @@ declare global {
   }
 }
 
-// With ISOLATED=1 the build is served the way its real hosts serve it, cross-origin isolated,
-// which switches FFmpeg, ONNX Runtime and OxiPNG to threads. Without it, as a host that sends
-// no such headers would, before the service worker has taken over.
-const headers: Record<string, string> = process.env.ISOLATED
-  ? {
-      "Cross-Origin-Opener-Policy": "same-origin",
-      "Cross-Origin-Embedder-Policy": "require-corp",
-    }
-  : {};
-
-// Set up a basic webserver to host the distribution build
-const server = Bun.serve({
-  async fetch(req) {
-    let path = new URL(req.url).pathname.replace("/convert/", "") || "index.html";
-    path = path.replaceAll("..", "");
-    if (path.startsWith("/test/")) path = "../test/resources/" + path.slice(6);
-    const file = Bun.file(`${__dirname}/../dist/${path}`);
-    if (!(await file.exists())) return new Response("Not Found", { status: 404 });
-    return new Response(file, { headers });
-  },
-  port: 0,
+// Host the distribution build with vite's preview server (same headers as production),
+// plus the test resources under /test/
+const server = await preview({
+  logLevel: "silent",
+  preview: { port: 0 },
+  plugins: [
+    {
+      name: "test-resources",
+      configurePreviewServer(server) {
+        server.middlewares.use("/test", (req, res, next) => {
+          Bun.file(`${__dirname}/resources/${req.url!.replaceAll("..", "")}`)
+            .bytes()
+            .then(
+              (bytes) => res.end(bytes),
+              () => next(),
+            );
+        });
+      },
+    },
+  ],
 });
 
 // Start puppeteer, wait for ready confirmation
@@ -60,7 +59,7 @@ await Promise.all([
       if (text === "Built initial format list.") resolve(null);
     });
   }),
-  page.goto(`http://localhost:${server.port}/convert/index.html`),
+  page.goto(server.resolvedUrls!.local[0]),
 ]);
 
 const isolated = await page.evaluate(() => crossOriginIsolated);
@@ -70,7 +69,7 @@ const dummyHandler: FormatHandler = {
   name: "dummy" as HandlerName,
   ready: true,
   async init() {},
-  async doConvert(_inputFiles, inputFormat, outputFormat, _args) {
+  async doConvert(_inputFiles, inputFormat, outputFormat) {
     return [];
   },
 };
@@ -79,7 +78,7 @@ function attemptConversion(
   files: string[],
   from: FileFormat,
   to: FileFormat,
-  settings?: ConversionSettings,
+  settings?: ConvertOptions,
 ) {
   return page.evaluate(
     async (testFileNames, from, to, settings) => {
@@ -90,7 +89,7 @@ function attemptConversion(
           name: fileName,
         });
       }
-      const result = await window.tryConvertByTraversing(files, from, to, undefined, settings);
+      const result = await window.tryConvertByTraversing(files, from, to, { settings });
       // byte arrays don't survive the trip out of the page, so measure them here
       return result && { ...result, size: result.files[0].bytes.length };
     },
@@ -287,7 +286,7 @@ function convertGenerated(
   input: string,
   from: Pick<FileFormat, "mime" | "format">,
   to: Pick<FileFormat, "mime" | "format">,
-  settings?: ConversionSettings,
+  settings?: ConvertOptions,
 ) {
   return page.evaluate(
     async (input, from, to, settings) => {
@@ -378,7 +377,7 @@ function convertGenerated(
 
       // converting hands the buffer to a worker, which empties this array
       const inputSize = bytes.length;
-      const result = await window.tryConvertByTraversing(files, from, to, undefined, settings);
+      const result = await window.tryConvertByTraversing(files, from, to, { settings });
       if (!result) return null;
 
       const output = result.files[0].bytes;
@@ -515,7 +514,9 @@ test(
     const ply = await convertGenerated(STL, Formats.STL, Formats.PLY);
     const usdz = await convertGenerated(STL, Formats.STL, Formats.USDZ);
 
-    expect(obj!.handlers.at(-1)).toBe("threeModels");
+    // OBJ, GLB and PLY are the upstream threejs handler's, USDZ the fork's threeModels
+    expect(obj!.handlers.at(-1)).toBe("threejs");
+    expect(usdz!.handlers.at(-1)).toBe("threeModels");
     // four triangles, each with its own three corners
     expect(obj!.text.match(/^v /gm)).toHaveLength(12);
     expect(obj!.text.match(/^f /gm)).toHaveLength(4);
@@ -529,11 +530,11 @@ test(
 );
 
 test(
-  "stl → png goes on from the model handler to the renderer",
+  "stl → png is rendered by the threejs handler",
   async () => {
     const image = await convertGenerated(STL, Formats.STL, Formats.PNG);
 
-    expect(image!.handlers.slice(-2)).toEqual(["threeModels", "threejs"]);
+    expect(image!.handlers.at(-1)).toBe("threejs");
     expect(image!.width).toBe(960);
   },
   { timeout: 60000 },
@@ -600,7 +601,7 @@ test(
 
     expect(glb!.text.startsWith("glTF")).toBe(true);
     // one step: an exporter that gave up on the texture would send this through OBJ, without materials
-    expect(glb!.handlers.slice(1)).toEqual(["threeModels"]);
+    expect(glb!.handlers.slice(1)).toEqual(["threejs"]);
   },
   { timeout: 60000 },
 );
@@ -794,9 +795,11 @@ test(
 );
 
 test(
-  "formats without a compressor have no same-format route",
+  "formats without a compressor take upstream's own same-format route",
   async () => {
-    expect(await convertGenerated("plain text", Formats.TEXT, Formats.TEXT)).toBeNull();
+    // no compressor is listed for plain text, so upstream's graph search handles it
+    const same = await convertGenerated("plain text", Formats.TEXT, Formats.TEXT);
+    expect(same!.text).toBe("plain text");
   },
   { timeout: 60000 },
 );
@@ -846,19 +849,15 @@ function convertResource(
   name: string,
   from: Pick<FileFormat, "mime" | "format">,
   to: Pick<FileFormat, "mime" | "format">,
-  settings?: ConversionSettings,
+  settings?: ConvertOptions,
 ) {
   return page.evaluate(
     async (name, from, to, settings) => {
       const bytes = await fetch("/test/" + name).then((r) => r.bytes());
       const inputSize = bytes.length;
-      const result = await window.tryConvertByTraversing(
-        [{ name, bytes }],
-        from,
-        to,
-        undefined,
+      const result = await window.tryConvertByTraversing([{ name, bytes }], from, to, {
         settings,
-      );
+      });
       if (!result) return null;
       const output = result.files[0];
       return {
@@ -997,7 +996,7 @@ test(
           { name: "b.mp3", bytes: bytes.slice() },
         ];
         const settings = { fadeIn: 0.5, speed: 1.5, reverse: true, trimSilence: true };
-        const output = await window.tryConvertByTraversing(files, from, to, undefined, settings);
+        const output = await window.tryConvertByTraversing(files, from, to, { settings });
         return (
           output && {
             names: output.files.map((f) => f.name),
@@ -1025,8 +1024,8 @@ test(
           { name: "a.png", bytes },
           { name: "b.png", bytes: bytes.slice() },
         ];
-        const output = await window.tryConvertByTraversing(files, from, to, undefined, {
-          colors: 4,
+        const output = await window.tryConvertByTraversing(files, from, to, {
+          settings: { colors: 4 },
         });
         return output && output.files.map((f) => f.name);
       },
@@ -1237,8 +1236,9 @@ test(
           [{ name: "doom.mp4", bytes }],
           from,
           to,
-          undefined,
-          { speed: 2 },
+          {
+            settings: { speed: 2 },
+          },
         );
         if (!output) return null;
         const video = document.createElement("video");
@@ -1354,5 +1354,5 @@ test(
 
 afterAll(async () => {
   await browser.close();
-  server.stop();
+  await server.close();
 });

@@ -1,8 +1,6 @@
 import type { FileData, FileFormat, FormatHandler } from "../FormatHandler.ts";
 import {
   extractEvents,
-  tableToString,
-  stringToTable,
   buildMidi,
   parseRtttl,
   parseGrubTune,
@@ -18,6 +16,8 @@ import sfontUrl from "built/timgm6mb/TimGM6mb.sf2?url";
 import fluidsynthUrl from "js-synthesizer/externals/libfluidsynth-2.4.6.js?url";
 import { changeExt, decode, encode, stripExt } from "src/common/index.ts";
 import { blobToCanvas, canvasToBlob, createCanvas } from "src/common/canvas.ts";
+import { Settings } from "src/Settings.ts";
+import type { ConvertContext } from "src/ui/ProgressStore.ts";
 
 const SAMPLE_RATE = 44100;
 const BUFFER_FRAMES = 4096;
@@ -85,7 +85,6 @@ export class midiCodecHandler implements FormatHandler {
     Formats.RTTTL.builder("rtttl").fromTo(),
     Formats.NOKRING.builder("rtttl").from(),
     Formats.GRUB.builder("grub").fromTo(),
-    Formats.TEXT.builder("txt").lossless().fromTo(),
     // PNG spectrogram -> MIDI (matches meyda's internal="image" so routing picks
     // up the audio->png->mid path automatically)
     Formats.PNG.builder("png").fromTo(),
@@ -120,32 +119,20 @@ export class midiCodecHandler implements FormatHandler {
         table = pngToMidi(data, width, height);
       } else if (inputFormat.internal === "mid") {
         table = extractEvents(inputFile.bytes);
-      } else if (
-        inputFormat.internal === "txt" ||
-        inputFormat.internal === "rtttl" ||
-        inputFormat.internal === "grub"
-      ) {
-        // Text input: MIDI-text, RTTTL, or GRUB tune
+      } else if (inputFormat.internal === "rtttl" || inputFormat.internal === "grub") {
+        // Text input: RTTTL or GRUB tune
         const text = decode(inputFile.bytes);
         const trimmed = text.trimStart();
-        table = trimmed.startsWith("# MIDI File")
-          ? stringToTable(text)
-          : /^[^\s:]+\s*:(?:\s*[a-zA-Z]=\d+\s*,?\s*)+:/.test(trimmed)
-            ? parseRtttl(text)
-            : parseGrubTune(text);
+        table = /^[^\s:]+\s*:(?:\s*[a-zA-Z]=\d+\s*,?\s*)+:/.test(trimmed)
+          ? parseRtttl(text)
+          : parseGrubTune(text);
       } else {
         throw new TypeError(`Unsupported input format: ${inputFormat.internal}`);
       }
 
       // Step 2: event table -> output format
 
-      if (outputFormat.internal === "txt") {
-        const text = tableToString(table);
-        outputFiles.push({
-          bytes: encode(text),
-          name: changeExt(inputFile.name, outputFormat.extension),
-        });
-      } else if (outputFormat.internal === "rtttl") {
+      if (outputFormat.internal === "rtttl") {
         const text = tableToRtttl(table, baseName);
         outputFiles.push({
           bytes: encode(text),
@@ -185,7 +172,10 @@ export class midiSynthHandler implements FormatHandler {
   public readonly name = "midiSynth";
   public supportedFormats = [
     Formats.MIDI.builder("mid").lossless().from(),
-    Formats.WAV.builder("wav").lossless().to(),
+    Formats.WAV.builder("wav")
+      .lossless()
+      .options({ sampleRate: { ...Settings.sampleRate, min: 8000, max: 96000 } })
+      .to(),
   ];
   public ready = false;
 
@@ -204,15 +194,17 @@ export class midiSynthHandler implements FormatHandler {
     inputFiles: FileData[],
     _inputFormat: FileFormat,
     _outputFormat: FileFormat,
+    ctx?: ConvertContext,
   ): Promise<FileData[]> {
     if (!this.ready || !this.#sfontBin) throw new InitializationError("Handler not initialized.");
+    const sampleRate = ctx?.options.sampleRate ?? SAMPLE_RATE;
 
     const JSSynth = this.#JSSynth;
     const outputFiles: FileData[] = [];
 
     for (const inputFile of inputFiles) {
       const synth = new JSSynth.Synthesizer();
-      synth.init(SAMPLE_RATE);
+      synth.init(sampleRate);
       await synth.loadSFont(this.#sfontBin);
 
       // slice() guarantees a clean ArrayBuffer with no byteOffset
@@ -254,7 +246,7 @@ export class midiSynthHandler implements FormatHandler {
         }
       }
 
-      const wavBytes = buildWav(pcm, SAMPLE_RATE, 2, 16);
+      const wavBytes = buildWav(pcm, sampleRate, 2, 16);
       outputFiles.push({ bytes: wavBytes, name: changeExt(inputFile.name, "wav") });
     }
 

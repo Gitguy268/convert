@@ -11,10 +11,10 @@ export const DOWNLOADS_DIR = join(CACHE_DIR, "downloads");
 const RECIPE_DIR = join(import.meta.dir, "../../recipe");
 const PREBUILT_DIR = join(import.meta.dir, "../../prebuilt");
 
-export const PREBUILD_VERSION = 1;
+export const PREBUILD_VERSION = 2;
 
-export const PACK_IMAGE =
-  "debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251";
+export const BASE_DOCKERFILE = join(import.meta.dir, "base.Dockerfile");
+export const PREBUILD_SCRIPT = join(import.meta.dir, "prebuild.sh");
 
 export type Scope = {
   recipeDir: string;
@@ -30,6 +30,14 @@ export const ROOT_SCOPE: Scope = {
   prebuiltDir: PREBUILT_DIR,
 };
 
+// shared by all recipes, only cached locally and mounted into prebuilds under /toolchains
+export const TOOLCHAIN_SCOPE: Scope = {
+  recipeDir: join(RECIPE_DIR, "toolchains"),
+  outDir: join(CACHE_DIR, "toolchains"),
+  stateDir: join(CACHE_DIR, "toolchain-state"),
+  prebuiltDir: join(CACHE_DIR, "toolchain-prebuilts"),
+};
+
 export function subrecipeScope(scope: Scope, name: string): Scope {
   const stateDir = join(scope.stateDir, "subrecipes", name);
   return {
@@ -38,6 +46,17 @@ export function subrecipeScope(scope: Scope, name: string): Scope {
     stateDir,
     prebuiltDir: join(scope.prebuiltDir, name),
   };
+}
+
+// for the interactive commands, an empty answer picks the fallback
+export function ask<T extends string>(question: string, choices: T[], fallback: T): T {
+  const hint = choices.map((choice) => (choice === fallback ? choice.toUpperCase() : choice));
+  for (;;) {
+    const answer = (prompt(`${question} [${hint.join("/")}]`) ?? "").trim().toLowerCase();
+    if (!answer) return fallback;
+    const choice = choices.find((choice) => choice === answer);
+    if (choice) return choice;
+  }
 }
 
 export async function loadRequirements(recipeDir: string): Promise<RequirementsConfig> {
@@ -71,22 +90,28 @@ export function selectRequirements(
   return [...new Set(names)].map((name) => byName.get(name)!);
 }
 
-export function prebuiltPath(requirement: PrebuildRequirement, scope: Scope, inputs: string) {
-  return join(scope.prebuiltDir, `${requirement.name}-${inputs}.tar.gz`);
+// prebuilt/<name>.json points to the tarball in the github release, see release.ts. small
+// tarballs have no url and are committed next to it instead, as prebuilt/<name>.tar.gz
+export type Pointer = { inputs: string; url?: string; sha256: string; size: number };
+
+export function prebuiltPath(requirement: PrebuildRequirement, scope: Scope) {
+  return join(scope.prebuiltDir, `${requirement.name}.json`);
 }
 
-export async function findPrebuilts(requirement: PrebuildRequirement, scope: Scope) {
-  const pattern = new RegExp(`^${RegExp.escape(requirement.name)}-([0-9a-f]{64})\\.tar\\.gz$`);
-  let entries: string[];
-  try {
-    entries = await readdir(scope.prebuiltDir);
-  } catch {
-    return [];
-  }
-  return entries.flatMap((entry) => {
-    const inputs = pattern.exec(entry)?.[1];
-    return inputs ? [{ path: join(scope.prebuiltDir, entry), inputs }] : [];
-  });
+export function inlinePath(pointerPath: string) {
+  return pointerPath.replace(/\.json$/, ".tar.gz");
+}
+
+export async function readPointer(path: string): Promise<Pointer> {
+  return await Bun.file(path).json();
+}
+
+// the pointer, but only if it was built from these inputs
+export async function findPrebuilt(requirement: PrebuildRequirement, scope: Scope, inputs: string) {
+  const path = prebuiltPath(requirement, scope);
+  if (!(await Bun.file(path).exists())) return undefined;
+  const pointer = await readPointer(path);
+  return pointer.inputs === inputs ? pointer : undefined;
 }
 
 async function extractInto(outPath: string, extract: (dir: string) => Promise<void>) {
@@ -140,6 +165,8 @@ export async function extractZip(outPath: string, zip: Uint8Array) {
         throw new Error(`Zip entry ${entry.name} escapes the output directory.`);
       }
       await Bun.write(join(dir, path), await entry.async("uint8array"));
+      const mode = Number(entry.unixPermissions ?? 0) & 0o777;
+      if (mode) await chmod(join(dir, path), mode | 0o200);
     }
   });
 }

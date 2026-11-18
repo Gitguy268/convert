@@ -1,6 +1,7 @@
 import type { CategoryType } from "./Formats.js";
 import type { HandlerName } from "./handlers/index.js";
 import type { ConvertContext } from "./ui/ProgressStore.js";
+import type { ConvertOptions, FormatOptions } from "./Settings.js";
 
 /**
  * Definition of file format. Contains format defined constants like mime type and names
@@ -30,7 +31,19 @@ export interface FileFormat extends IFormatDefinition {
   internal: string;
   /** (Optional) Whether the format is lossless in this context. Defaults to `false`. */
   lossless?: boolean;
+  /** (Optional) Conversion options honoured when converting **to** this format.
+   * See [src/Settings.ts](src/Settings.ts). The values arrive in `ctx.options`. */
+  options?: FormatOptions;
 }
+
+/** Unique identifier of a format across handlers, e.g. `image/png(png)`. */
+export const formatIdentifier = (format: IFormatDefinition) => `${format.mime}(${format.format})`;
+
+/** Whether both are the same format, regardless of which handler they come from. */
+export const sameFormat = (
+  a: IFormatDefinition | null | undefined,
+  b: IFormatDefinition | null | undefined,
+) => a?.mime === b?.mime && a?.format === b?.format;
 
 /**
  * Class containing format definition and method used to produce FileFormat
@@ -92,6 +105,11 @@ export class FormatBuilder {
     this.#format.lossless = value;
     return this;
   }
+  /** Declares the conversion options honoured when converting **to** this format. */
+  options(value: FormatOptions) {
+    this.#format.options = value;
+    return this;
+  }
   /** Builds a format that only allows conversion **from** it. */
   from(value: boolean = true): FileFormat {
     return this.fromTo(value, false);
@@ -125,6 +143,16 @@ export interface FileData {
    */
   readonly name: string;
   /**
+   * Folder the file sits in in an imaginary folder. Relative, `/`-separated,
+   * without leading or trailing slashes. Missing for loose files.
+   * ex. "assets/img" for a file that came from the path "assets/img/a.png"
+   *
+   * **Please note:** _handlers_ are responsible for ensuring the lifetime
+   * and consistency of the buffer and the immutability of the object as a whole
+   * when passed as input.
+   */
+  readonly path?: string;
+  /**
    * File contents in bytes.
    *
    * **Please note:** _handlers_ are responsible for ensuring the lifetime
@@ -141,11 +169,6 @@ export interface HandlerDefinition {
   /** List of supported input/output {@link FileFormat}s. */
   supportedFormats?: FileFormat[];
 
-  /** Whether the handler supports input of any type.
-   * Conversion using this handler will be performed only if no other direct conversion is found.
-   */
-  readonly supportAnyInput?: boolean;
-
   /** Whether the handler supports running in a Web Worker.
    * Unless you are doing something extraordinary, this should be enabled. If you plan to disable it,
    * your reason better be REALLY good. Try replacing `HTMLCanvasElement` -> `OffscreenCanvas`
@@ -154,6 +177,13 @@ export interface HandlerDefinition {
    * Defaults to `true`.
    */
   readonly offload?: boolean;
+
+  /** Whether the handler supports graceful aborting.
+   * Usually you should either listen to the "abort" event of ctx.signal, or poll ctx.throwIfAborted() in long loops.
+   * The handler is responsible for making sure that internal state is not corrupted if any abort happens.
+   * Defaults to `false`.
+   */
+  readonly abortable?: boolean;
 }
 
 /**
@@ -178,16 +208,14 @@ export interface FormatHandler extends HandlerDefinition {
    * @param inputFiles Array of {@link FileData} entries, one per input file.
    * @param inputFormat Input {@link FileFormat}, the same for all inputs.
    * @param outputFormat Output {@link FileFormat}, the same for all outputs.
-   * @param args Optional arguments as a string array.
-   * Can be used to perform recursion with different settings.
-   * @param ctx Optional {@link ConvertContext} for progress reporting.
+   * @param ctx Optional {@link ConvertContext} for progress reporting. `ctx.options` holds the
+   * values of the options declared in `outputFormat.options`, already validated.
    * @returns Array of {@link FileData} entries, one per generated output file.
    */
   doConvert: (
     inputFiles: FileData[],
     inputFormat: FileFormat,
     outputFormat: FileFormat,
-    args?: string[],
     ctx?: ConvertContext,
   ) => Promise<FileData[]>;
 }
@@ -195,17 +223,21 @@ export interface FormatHandler extends HandlerDefinition {
 export class ConvertPathNode {
   public handler: HandlerDefinition;
   public format: FileFormat;
-  constructor(handler: HandlerDefinition, format: FileFormat) {
+  /** Options for the step that produces this node. Filled in by the user when they build the
+   * path themselves, or by `distributeOptions` when the path is found automatically. */
+  public options?: ConvertOptions;
+  constructor(handler: HandlerDefinition, format: FileFormat, options?: ConvertOptions) {
     this.handler = handler;
     this.format = format;
+    this.options = options;
   }
 }
 
 export function stripHandler(handler: HandlerDefinition): HandlerDefinition {
   return structuredClone({
     name: handler.name,
-    supportAnyInput: handler.supportAnyInput,
     supportedFormats: handler.supportedFormats,
     offload: handler.offload,
+    abortable: handler.abortable,
   });
 }

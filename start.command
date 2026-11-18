@@ -23,7 +23,8 @@ fi
 # rebuild when there is no build yet, or when a source file is newer than the build
 if [ ! -f dist/index.html ] ||
   [ -n "$(find src index.html vite.config.js package.json -newer dist/index.html -print -quit)" ]; then
-  bun run build || exit 1
+  # the default assemble skips the optional clang prebuilt (130 MB) that `bun run build` fetches
+  { bun run build:assemble && bunx tsc && bunx vite build; } || exit 1
   # the cache only makes the first load faster, so a failure here must not stop the app
   bun run cache:build ||
     echo "The format cache could not be built; the app works without it, it only starts slower."

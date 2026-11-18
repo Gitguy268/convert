@@ -178,7 +178,7 @@ export function densityField(splats: Splat[], n = MESH_GRID) {
     ];
     const sig = s.scale.map((v) => Math.max(v, MIN_SIGMA));
     // the inverse covariance R S^-2 R^T
-    const inv = new Array(9).fill(0);
+    const inv = Array.from({ length: 9 }, () => 0);
     for (let a = 0; a < 3; a++) {
       for (let b = 0; b < 3; b++) {
         let sum = 0;

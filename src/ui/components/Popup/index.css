@@ -92,3 +92,10 @@
     background: rgba(0, 0, 0, 0.35);
   }
 }
+
+/* "Open in the editor" for results the editors read (src/ui/components/Studio) */
+#popup .conversion-editors {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}

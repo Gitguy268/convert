@@ -25,6 +25,10 @@ import {
 } from "src/batch";
 import { stripExt } from "src/common";
 import { describeFound, findMetadata } from "src/handlers/stripMetadata";
+import { MODEL_FOR_FORMAT, parseCues } from "src/handlers/modelTools";
+import { Studio, type StudioState } from "src/ui/components/Studio";
+import { decode } from "src/common";
+import { ensureModel } from "src/ui/components/ModelDialog";
 import { filePath } from "src/common/path.ts";
 
 import ConversionHeader from "src/ui/components/Conversion/ConversionHeader";
@@ -47,7 +51,11 @@ import {
   Info,
   Archive,
   ALargeSmall,
+  PencilRuler,
   Box,
+  Captions,
+  ReceiptText,
+  Workflow,
   Highlighter,
   Signature,
   Type,
@@ -67,7 +75,7 @@ import {
 } from "lucide-preact";
 import Chip from "src/ui/components/Chip";
 import { PopupData } from "src/ui";
-import { openPopup, popupOpen } from "src/ui/PopupStore";
+import { closePopup, openPopup, popupOpen } from "src/ui/PopupStore";
 import FileInfoBadge, { formatFileSize } from "src/ui/components/FileInfo";
 import AudioReport, { readSummaries } from "src/ui/components/AudioReport";
 import { ConversionInProgress, CurrentPage, Pages } from "src/ui/AppState";
@@ -109,6 +117,8 @@ const TOOLS: Record<string, { label: string; icon: preact.JSX.Element }> = {
   metadata: { label: "Metadata", icon: <Info size={14} /> },
   ts: { label: "TypeScript types", icon: <Braces size={14} /> },
   trim: { label: "Trim", icon: <Scissors size={14} /> },
+  "edit-mermaid": { label: "Edit diagram", icon: <PencilRuler size={14} /> },
+  "edit-subtitles": { label: "Edit subtitles", icon: <PencilRuler size={14} /> },
   "clean-jpeg": { label: "Remove metadata", icon: <ShieldOff size={14} /> },
   "clean-png": { label: "Remove metadata", icon: <ShieldOff size={14} /> },
   "clean-webp": { label: "Remove metadata", icon: <ShieldOff size={14} /> },
@@ -122,6 +132,9 @@ const TOOLS: Record<string, { label: string; icon: preact.JSX.Element }> = {
   "font-specimen": { label: "Specimen", icon: <ALargeSmall size={14} /> },
   "pdf-redacted": { label: "Redact", icon: <Highlighter size={14} /> },
   "pdf-signed": { label: "Sign", icon: <Signature size={14} /> },
+  "mermaid-from-image": { label: "Diagram to Mermaid (AI)", icon: <Workflow size={14} /> },
+  "receipt-csv": { label: "Receipt to CSV (AI)", icon: <ReceiptText size={14} /> },
+  "transcript-srt": { label: "Subtitles (AI)", icon: <Captions size={14} /> },
   "mesh-3d-glb": { label: "3D model", icon: <Box size={14} /> },
   "mesh-3d-stl": { label: "3D print (STL)", icon: <Box size={14} /> },
   age: { label: "Encrypt (age)", icon: <Lock size={14} /> },
@@ -339,8 +352,15 @@ export default function Conversion() {
       const groups = groupByTarget(
         entries.map(([key, file]) => ({ file, from: targets[key].from!, to: targets[key].to! })),
       );
+      // the model tools ask for their model first, once (src/ui/components/ModelDialog)
+      for (const id of new Set(groups.flatMap((g) => MODEL_FOR_FORMAT[g.to[0].format] ?? []))) {
+        if (!(await ensureModel(id))) throw new DOMException("No model", "AbortError");
+      }
+
       const outputs: FileData[] = [];
       const summary: string[] = [];
+      // results the editors can open: Mermaid read from a picture, subtitles from speech
+      const editable: StudioState[] = [];
       let outputMime = "";
       let failed = 0;
 
@@ -393,6 +413,19 @@ export default function Conversion() {
           continue;
         }
         outputs.push(...output.files);
+        if (toFormat.format === "mermaid-from-image") {
+          for (const file of output.files)
+            editable.push({ kind: "mermaid", name: file.name, text: decode(file.bytes) });
+        } else if (toFormat.format.startsWith("transcript-")) {
+          for (const [i, file] of output.files.entries()) {
+            editable.push({
+              kind: "subtitles",
+              name: file.name,
+              cues: parseCues(decode(file.bytes)),
+              media: group.items[i]?.file,
+            });
+          }
+        }
         // set here, not earlier, so a group that failed can't label another group's file
         outputMime = toFormat.mime;
 
@@ -448,6 +481,22 @@ export default function Conversion() {
             <h1>{title}</h1>
             {reports.length > 0 && <AudioReport summaries={reports} onSave={save} />}
             {(!reports.length || failed > 0) && summary.map((line) => <p key={line}>{line}</p>)}
+            {editable.length > 0 && (
+              <div className="conversion-editors">
+                {editable.map((state) => (
+                  <button
+                    key={state.name}
+                    type="button"
+                    onClick={() => {
+                      closePopup();
+                      Studio.value = state;
+                    }}
+                  >
+                    Open {state.name} in the editor
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         ),
       };
@@ -493,6 +542,13 @@ export default function Conversion() {
           ...(isTimed(fromOption[0]) && compressors.length
             ? [{ id: "trim", option: compressors[0] }]
             : []),
+          // the editors open the file as it is, without converting
+          ...(fromOption[0].mime === "text/vnd.mermaid"
+            ? [{ id: "edit-mermaid", option: fromOption }]
+            : []),
+          ...(["application/x-subrip", "text/vtt"].includes(fromOption[0].mime)
+            ? [{ id: "edit-subtitles", option: fromOption }]
+            : []),
           ...toolsFor(fromOption[0], toSiblings.length + 1, "gpu" in navigator).flatMap((id) => {
             const matches = [...allOptions].filter(([format]) => format.to && format.format === id);
             const option = matches.find(([f]) => f.mime === fromOption[0].mime) ?? matches[0];
@@ -500,6 +556,20 @@ export default function Conversion() {
           }),
         ]
       : [];
+
+  /** Opens the chosen file in its editor; subtitles take a video or song selected with them. */
+  const openEditor = async (id: string) => {
+    if (!activeFile) return;
+    const text = await activeFile.text();
+    if (id === "edit-mermaid") {
+      Studio.value = { kind: "mermaid", name: activeFile.name, text };
+      return;
+    }
+    const media = entries
+      .map(([, file]) => file)
+      .find((file) => /^(video|audio)\//.test(file.type));
+    Studio.value = { kind: "subtitles", name: activeFile.name, cues: parseCues(text), media };
+  };
 
   const canProceed = step === "select-from" ? !!fromOption : allReady;
   const multiple = entries.length > 1;
@@ -565,6 +635,10 @@ export default function Conversion() {
                     icon={TOOLS[id].icon}
                     selected={selected}
                     onClick={() => {
+                      if (id === "edit-mermaid" || id === "edit-subtitles") {
+                        void openEditor(id);
+                        return;
+                      }
                       handleToSelect(selected ? null : option);
                       if (id === "trim" && !selected) {
                         setSetting("copyStreams", true);

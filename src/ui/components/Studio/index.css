@@ -1,0 +1,263 @@
+/* a glass sheet over the page, like the popup but nearly full size */
+.studio {
+  width: min(1200px, calc(100vw - 32px));
+  height: min(820px, calc(100vh - 32px));
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  margin: auto;
+  color: var(--text-primary);
+  background: rgba(var(--lg-tint), 0.86);
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+  border: 1px solid var(--lg-border);
+  border-radius: var(--lg-radius);
+  box-shadow: var(--lg-shadow), var(--lg-specular), var(--lg-occlusion);
+  overflow: hidden;
+}
+
+.studio[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.studio::backdrop {
+  background: rgb(0 0 0 / 0.35);
+}
+
+.studio-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--lg-border);
+}
+
+.studio-header h2 {
+  font-size: 1rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-mermaid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.studio-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-height: 0;
+}
+
+.studio-pane-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.studio-mermaid textarea {
+  flex: 1;
+  resize: none;
+  font:
+    13px/1.5 ui-monospace,
+    "SF Mono",
+    Menlo,
+    Consolas,
+    monospace;
+  padding: 0.75rem;
+  border-radius: 12px;
+  border: 1px solid var(--lg-border);
+  background: rgba(var(--lg-tint), 0.7);
+  color: var(--text-primary);
+}
+
+.studio-preview {
+  flex: 1;
+  overflow: auto;
+  border-radius: 12px;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.studio-preview svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.studio-error {
+  font:
+    12px/1.4 ui-monospace,
+    monospace;
+  white-space: pre-wrap;
+  color: var(--danger);
+  margin: 0;
+}
+
+.studio-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.studio-subtitles {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  grid-template-rows: minmax(0, 1fr) 90px auto;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.studio-media {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  border-radius: 12px;
+  background: #000;
+  overflow: hidden;
+}
+
+.studio-media video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.studio-media video.studio-audio {
+  height: 48px;
+}
+
+.studio-current {
+  position: absolute;
+  left: 50%;
+  bottom: 56px;
+  transform: translateX(-50%);
+  max-width: 90%;
+  padding: 0.2rem 0.6rem;
+  border-radius: 6px;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  text-align: center;
+  white-space: pre-line;
+  pointer-events: none;
+}
+
+.studio-add-media {
+  color: #ddd;
+  padding: 1rem;
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.studio-wave {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 90px;
+  border-radius: 10px;
+  background: rgba(var(--lg-tint), 0.6);
+  border: 1px solid var(--lg-border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.studio-cues {
+  grid-column: 2;
+  grid-row: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.studio-cues li {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.5rem;
+  border-radius: 10px;
+  border: 1px solid var(--lg-border);
+  background: rgba(var(--lg-tint), 0.5);
+}
+
+.studio-cues li.studio-cue-active {
+  border-color: var(--primary);
+}
+
+.studio-cues textarea {
+  resize: vertical;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid var(--lg-border);
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.studio-time,
+.studio-cue-tools button {
+  font: inherit;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+}
+
+.studio-cue-tools {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.studio-busy {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 760px) {
+  .studio-mermaid,
+  .studio-subtitles {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    overflow: auto;
+  }
+
+  .studio-mermaid textarea {
+    min-height: 200px;
+  }
+
+  .studio-media {
+    min-height: 200px;
+  }
+
+  .studio-cues {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}

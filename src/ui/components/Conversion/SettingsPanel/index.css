@@ -325,7 +325,7 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  border: 2px solid var(--accent-color, #2f6fed);
+  border: 2px solid var(--primary);
   border-radius: 10px;
   box-shadow:
     0 0 0 999px rgb(0 0 0 / 0.45),

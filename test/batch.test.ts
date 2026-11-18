@@ -156,6 +156,8 @@ test("toolsFor offers the tools that fit the input", () => {
     "looks",
     "mesh-3d-glb",
     "mesh-3d-stl",
+    "mermaid-from-image",
+    "receipt-csv",
   ];
 
   expect(toolsFor(png, 1, true)).toEqual([
@@ -172,12 +174,14 @@ test("toolsFor offers the tools that fit the input", () => {
     "upscaled-film",
     "upscaled-animation",
     "metadata",
+    "transcript-srt",
     "age",
   ]);
   expect(toolsFor(Formats.MP3.builder("mp3").from(), 1, true)).toEqual([
     "audio-check",
     "audio-video",
     "metadata",
+    "transcript-srt",
     "age",
   ]);
   expect(toolsFor(png, 3, false)).toEqual([
@@ -222,6 +226,8 @@ test("toolsFor leaves out what cannot work: merging one PDF, upscaling without W
     "looks",
     "mesh-3d-glb",
     "mesh-3d-stl",
+    "mermaid-from-image",
+    "receipt-csv",
     "age",
   ]);
   // a collage of one picture is that picture
@@ -229,6 +235,7 @@ test("toolsFor leaves out what cannot work: merging one PDF, upscaling without W
   expect(toolsFor(Formats.MP4.builder("mp4").from(), 1, false)).toEqual([
     "contact-sheet",
     "metadata",
+    "transcript-srt",
     "age",
   ]);
   // the check judges the file as it is, which a MIDI file has to be converted for first

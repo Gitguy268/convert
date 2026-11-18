@@ -138,6 +138,7 @@ const HANDLERS = {
   archive: [],
   fontLab: [],
   imageTo3d: [],
+  modelTools: [],
 } as const;
 
 // handlers can only be named things listed above

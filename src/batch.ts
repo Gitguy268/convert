@@ -201,6 +201,7 @@ function mediaToolsFor(from: FileFormat, sameTypeCount: number, hasWebGpu: boole
       "contact-sheet",
       ...(hasWebGpu ? ["upscaled-film", "upscaled-animation"] : []),
       "metadata",
+      ...(SPEECH_FILES.includes(from.mime) ? ["transcript-srt"] : []),
     ];
   }
   if (categories.includes(Category.IMAGE) && !categories.includes(Category.VECTOR)) {
@@ -216,17 +217,34 @@ function mediaToolsFor(from: FileFormat, sameTypeCount: number, hasWebGpu: boole
       "depth",
       ...(clean ? [clean] : []),
       ...(clean ? ["looks"] : []),
-      ...(clean ? ["mesh-3d-glb", "mesh-3d-stl"] : []),
+      ...(clean ? ["mesh-3d-glb", "mesh-3d-stl", "mermaid-from-image", "receipt-csv"] : []),
       ...(sameTypeCount > 1 ? ["collage", "pdf-from-images"] : []),
     ];
   }
   if (categories.includes(Category.AUDIO)) {
     // judged on the file itself, so only for the formats the check reads as they are
     const direct = AUDIO_FILES.some((f) => sameFormat(f, from));
-    return [...(direct ? ["audio-check"] : []), "audio-video", "metadata"];
+    return [
+      ...(direct ? ["audio-check"] : []),
+      "audio-video",
+      "metadata",
+      ...(SPEECH_FILES.includes(from.mime) ? ["transcript-srt"] : []),
+    ];
   }
   return [];
 }
+
+/** What the subtitle tool reads: the files the browser decodes the sound of itself. */
+const SPEECH_FILES = [
+  "audio/mpeg",
+  "audio/wav",
+  "audio/mp4",
+  "audio/ogg",
+  "audio/flac",
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+];
 
 /** The "Remove metadata" tool of each picture format it reads without decoding. */
 const CLEAN_FORMATS: Record<string, string> = {

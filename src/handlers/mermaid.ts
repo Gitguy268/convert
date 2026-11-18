@@ -22,6 +22,33 @@ export function fixSvgSize(svg: string): string {
 
 let loading: Promise<Mermaid> | undefined;
 
+/** mermaid, set up the way this app draws with it: no script, SVG text, dagre layout. */
+export function loadMermaid(): Promise<Mermaid> {
+  loading ??= import("mermaid").then(({ default: mermaid }) => {
+    mermaid.initialize({
+      startOnLoad: false,
+      // no script, links or HTML from the diagram
+      securityLevel: "strict",
+      // labels as SVG text: HTML inside an SVG can't be drawn on a canvas, which PNG needs
+      htmlLabels: false,
+      // mermaid 12 lays out with ELK by default, which is left out (src/handlers/mermaid/noElk.ts)
+      layout: "dagre",
+    });
+    return mermaid;
+  });
+  loading.catch(() => (loading = undefined));
+  return loading;
+}
+
+let renders = 0;
+
+/** A diagram drawn as SVG at its own size. Throws mermaid's own message when the code is wrong. */
+export async function renderMermaid(code: string): Promise<string> {
+  const mermaid = await loadMermaid();
+  const { svg } = await mermaid.render(`mermaid-${Date.now()}-${renders++}`, code);
+  return fixSvgSize(svg);
+}
+
 /** Draws Mermaid diagrams as SVG. */
 class mermaidHandler implements FormatHandler {
   public readonly name = "mermaid";
@@ -41,25 +68,12 @@ class mermaidHandler implements FormatHandler {
     _inputFormat: FileFormat,
     _outputFormat: FileFormat,
   ): Promise<FileData[]> {
-    loading ??= import("mermaid").then(({ default: mermaid }) => {
-      mermaid.initialize({
-        startOnLoad: false,
-        // no script, links or HTML from the diagram
-        securityLevel: "strict",
-        // labels as SVG text: HTML inside an SVG can't be drawn on a canvas, which PNG needs
-        htmlLabels: false,
-        // mermaid 12 lays out with ELK by default, which is left out (src/handlers/mermaid/noElk.ts)
-        layout: "dagre",
-      });
-      return mermaid;
-    });
-    loading.catch(() => (loading = undefined));
-    const mermaid = await loading;
-
     const outputFiles: FileData[] = [];
-    for (const [i, file] of inputFiles.entries()) {
-      const { svg } = await mermaid.render(`mermaid-${Date.now()}-${i}`, decode(file.bytes));
-      outputFiles.push({ name: changeExt(file.name, "svg"), bytes: encode(fixSvgSize(svg)) });
+    for (const file of inputFiles) {
+      outputFiles.push({
+        name: changeExt(file.name, "svg"),
+        bytes: encode(await renderMermaid(decode(file.bytes))),
+      });
     }
     return outputFiles;
   }

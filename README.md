@@ -104,6 +104,23 @@ This is a fork of [p2r3/convert](https://github.com/p2r3/convert). The rest of t
 - **Watermarks and speed.** The watermark setting also works for pictures, and the speed setting for video.
 - **Mermaid and TypeScript.** Mermaid diagrams (`.mmd`) become SVG, and from there PNG, with [mermaid](https://github.com/mermaid-js/mermaid). Its ELK layout is left out, because elkjs is EPL-2.0. A JSON file becomes TypeScript interfaces, with optional keys and unions where the objects of a list differ.
 
+<img src="docs/tools-row.png" alt="The Tools row for a PNG: Read text, Remove background, Upscale, Favicon set, Frame screenshot, Halftone print, Depth map, Remove metadata, Theme from its colours, 3D model, 3D print (STL), Diagram to Mermaid (AI), Receipt to CSV (AI) and Encrypt (age)" width="860">
+
+- **Tools that keep your files private.** Fourteen tools work on the file in this browser tab and send it nowhere:
+  - **Frame screenshot** now also puts a picture in a Windows 98, liquid glass or macOS window, with a title and one of six backgrounds.
+  - **Remove metadata** takes the camera, time, place and comments out of a JPEG, PNG or WebP without re-encoding it. The orientation and colour profile stay. The result lists what was in each file, the GPS position first.
+  - **Encrypt (age)** locks any file, or several as one vault, with a passphrase or [age](https://age-encryption.org) public keys, using [typage](https://github.com/FiloSottile/typage). **Decrypt** opens it again. The files work with `age -d` and with Skyhold's vault.
+  - **Slides** presents a Markdown note as a deck that works offline, in HTML or PDF, in the plain, Windows 98, liquid glass or Xiao look. **Board** shows the tasks of a textarea-plus note ([Obsidian Tasks](https://github.com/obsidian-tasks-group/obsidian-tasks) syntax) as a Kanban board. Moving a card changes only its status, and "Save" writes the same note back.
+  - **Theme from its colours** turns a picture or a palette into a theme pack: CSS for the four looks, textarea theme codes and previews.
+  - **Page in one file** turns a saved web page (MHTML, or the "Webpage, Complete" folder as a zip) into one HTML file with every picture, style and font inside it and no script. It's ready for Xiao's openfinder library.
+  - **Subset for the web** (WOFF2 or TTF) keeps only the characters you name, with HarfBuzz's subsetter. **Specimen** compares fonts on one page you can type in.
+  - **Redact** blacks out words, or whatever a `/regular expression/` matches, and removes the text under them from the PDF. **Sign** puts a signature you draw or type on a page.
+  - **Trim** shows the video or song with in and out points, a strip of stills and frame steps, over the start and end settings.
+  - **3D model** and **3D print (STL)** guess an object's shape from one picture with [forma3d-tiny-4](https://huggingface.co/Lucasgitguy-co/forma3d-tiny-4) on ONNX Runtime (1.7 MB, part of this site). The output is Gaussian splats as PLY, or a closed mesh as GLB, STL or OBJ.
+  - **Diagram to Mermaid** ([MiniCPM-V Mermaid](https://huggingface.co/Lucasgitguy-co/minicpm-mermaid-gguf)), **Receipt to CSV** (Xiaomi-OCR-0 with the [CORD receipt LoRA](https://huggingface.co/Lucasgitguy-co/Xiaomi-OCR-0-CORD-LoRA-GGUF)) and **Subtitles** ([Qwen3-ASR 0.6B](https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF)) run an AI model in the browser on llama.cpp ([wllama](https://github.com/ngxson/wllama)). The first time, the page says how large the model is and downloads it from Hugging Face only when you agree. It checks every 64 MiB against its SHA-256 and keeps the model in the browser. You can also pick the GGUF files from your own disk. A diagram or subtitles then open in an editor: Mermaid with a live drawing, or subtitles with the waveform, the video and a burn-in to MP4.
+
+<img src="docs/studio-mermaid.png" alt="The diagram editor: Mermaid code for a four-step flowchart on the left, its drawing on the right, and buttons to save it as .mmd, SVG or PNG" width="425"> <img src="docs/studio-subtitles.png" alt="The subtitle editor for a speech: four timed subtitles that can be edited, split, joined or deleted, a player, and the waveform with each subtitle as a band over it" width="425">
+
 <br clear="right">
 
 <details>
@@ -130,6 +147,15 @@ This is a fork of [p2r3/convert](https://github.com/p2r3/convert). The rest of t
 - Audio edits apply to audio output only, not to the sound of a video. Fades at the end and cutting silence at the end hold the whole decoded file in memory, about 500 MB for an hour of stereo.
 - Page numbers and watermarks use Helvetica, so characters outside Latin-1 print as "?". On a page that a PDF turns with /Rotate they are placed as if it were upright. A PDF password can't contain a comma or an equals sign.
 - "Make a video" with a waveform encodes every frame and takes a while for a long song.
+- The model tools need WebGPU or a fast processor, about 2 to 4 GB of free memory, and a browser with WebAssembly JSPI and memory64: recent Chrome, Edge and Brave. The models take 0.75 to 1.8 GB of the browser's storage each, until you clear the site's data. They're the only thing this site downloads from somewhere else, and it does so only after asking. The page's security policy allows Hugging Face and nothing else.
+- Receipt to CSV is a small model with a LoRA trained on Indonesian and Malaysian receipts (CORD). It often writes broken JSON, which is read as leniently as possible, and it misses or mixes up fields. Check the numbers.
+- Subtitles have one cue per stretch of speech between pauses, at most 15 seconds, because the model gives no timings of its own. Burn-in draws the text in the browser's own font and re-encodes the video.
+- Mermaid from a picture works on clear diagrams (flowcharts above all). The editor shows when the code doesn't draw.
+- 3D from a picture is a research model of 306,000 parameters (silhouette IoU 0.54 on objects it never saw): a rough shape, not a scan. The mesh is the surface of the Gaussians' density on a 56³ grid, about 100 mm across in the STL.
+- Remove metadata reads JPEG, PNG and WebP. For other formats, use the "Remove metadata" setting, which re-encodes. Redaction finds text the PDF stores as text, not text in scanned images: OCR it first. Signatures sit in a corner of one page.
+- The board reads task lines (`- [ ]`, `[/]`, `[x]`, `[-]`) and keeps every other line as it is. Moving a card to Done adds the ✅ date, as Obsidian Tasks does.
+- Page in one file can't download pages itself (the security policy and CORS forbid it): save the page with the browser first. Scripts are removed, so pages that build themselves with script come out as they were saved.
+- Slides as PDF use Helvetica, so characters outside Latin-1 print as "?", and pictures are left out. The HTML deck has all of them.
 - The glass bends what is behind it at its edges, and shows the colour fringe, only in Chromium-based browsers. Firefox and Safari show the frosted pane without that. With "reduce transparency" switched on in the system settings, the panes are opaque.
 
 </details>

@@ -104,6 +104,7 @@ const HANDLERS = {
   compressPdf: ["./pdfTools.ts", "compressPdfHandler"],
   splitPdf: ["./pdfTools.ts", "splitPdfHandler"],
   imagesToPdf: ["./pdfTools.ts", "imagesToPdfHandler"],
+  pdfEdit: ["./pdfTools.ts", "pdfEditHandler"],
   oxipng: [],
   threeModels: [],
   subtitles: [],
@@ -129,6 +130,15 @@ const HANDLERS = {
   gdlvl: [],
   pbf: [],
   imageToIcs: [],
+  stripMetadata: [],
+  age: [],
+  slides: [],
+  kanban: [],
+  looks: [],
+  archive: [],
+  fontLab: [],
+  imageTo3d: [],
+  modelTools: [],
 } as const;
 
 // handlers can only be named things listed above

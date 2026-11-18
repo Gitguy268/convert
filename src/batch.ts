@@ -163,10 +163,34 @@ export function siblingKeys(
  * @param hasWebGpu Whether the browser can run the upscalers at all.
  */
 export function toolsFor(from: FileFormat, sameTypeCount: number, hasWebGpu: boolean): string[] {
+  return [...mediaToolsFor(from, sameTypeCount, hasWebGpu), ...fileToolsFor(from)];
+}
+
+/** Tools that read any file, after the ones for its kind. */
+function fileToolsFor(from: FileFormat): string[] {
+  if (from.format === "age") return ["age-opened"];
+  return ["age"];
+}
+
+function mediaToolsFor(from: FileFormat, sameTypeCount: number, hasWebGpu: boolean): string[] {
   if (from.mime === "application/pdf") {
-    return ["ocr", "pdf-pages", ...(sameTypeCount > 1 ? ["pdf-merged"] : [])];
+    return [
+      "ocr",
+      "pdf-pages",
+      "pdf-redacted",
+      "pdf-signed",
+      ...(sameTypeCount > 1 ? ["pdf-merged"] : []),
+    ];
   }
   if (from.mime === "application/json") return ["ts"];
+  if (from.mime === "text/markdown") return ["slides", "slides-pdf", "kanban"];
+  if (from.mime === "text/plain" && from.format === "text") return ["slides", "slides-pdf"];
+  if (from.format === "mhtml") return ["archived-page"];
+  if (from.mime === "application/zip" && from.format === "zip") return ["archived-page"];
+  if (from.format === "gpl") return ["looks"];
+  if (categoriesOf(from).includes(Category.FONT) && from.mime.startsWith("font/")) {
+    return ["woff2-subset", "ttf-subset", "font-specimen"];
+  }
   const categories = categoriesOf(from);
   // a GIF is both: it goes with video, where a single still is not what is asked for
   if (categories.includes(Category.VIDEO)) {
@@ -177,9 +201,11 @@ export function toolsFor(from: FileFormat, sameTypeCount: number, hasWebGpu: boo
       "contact-sheet",
       ...(hasWebGpu ? ["upscaled-film", "upscaled-animation"] : []),
       "metadata",
+      ...(SPEECH_FILES.includes(from.mime) ? ["transcript-srt"] : []),
     ];
   }
   if (categories.includes(Category.IMAGE) && !categories.includes(Category.VECTOR)) {
+    const clean = CLEAN_FORMATS[from.mime];
     // the metadata report and coloured ASCII art are in the format list: the row is long enough
     return [
       "ocr",
@@ -189,13 +215,40 @@ export function toolsFor(from: FileFormat, sameTypeCount: number, hasWebGpu: boo
       "framed",
       "halftone",
       "depth",
+      ...(clean ? [clean] : []),
+      ...(clean ? ["looks"] : []),
+      ...(clean ? ["mesh-3d-glb", "mesh-3d-stl", "mermaid-from-image", "receipt-csv"] : []),
       ...(sameTypeCount > 1 ? ["collage", "pdf-from-images"] : []),
     ];
   }
   if (categories.includes(Category.AUDIO)) {
     // judged on the file itself, so only for the formats the check reads as they are
     const direct = AUDIO_FILES.some((f) => sameFormat(f, from));
-    return [...(direct ? ["audio-check"] : []), "audio-video", "metadata"];
+    return [
+      ...(direct ? ["audio-check"] : []),
+      "audio-video",
+      "metadata",
+      ...(SPEECH_FILES.includes(from.mime) ? ["transcript-srt"] : []),
+    ];
   }
   return [];
 }
+
+/** What the subtitle tool reads: the files the browser decodes the sound of itself. */
+const SPEECH_FILES = [
+  "audio/mpeg",
+  "audio/wav",
+  "audio/mp4",
+  "audio/ogg",
+  "audio/flac",
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+];
+
+/** The "Remove metadata" tool of each picture format it reads without decoding. */
+const CLEAN_FORMATS: Record<string, string> = {
+  "image/jpeg": "clean-jpeg",
+  "image/png": "clean-png",
+  "image/webp": "clean-webp",
+};

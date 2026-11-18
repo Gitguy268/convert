@@ -65,6 +65,13 @@ const PICTURES = [
 
 // ---------------------------------------------------------------------------- Mermaid
 
+/**
+ * The model is sensitive to the wording: on 2026-11-18 "Convert this diagram into Mermaid code."
+ * (its card's example) made it invent a sequence diagram for a three-box flowchart, and "to"
+ * read the picture right, on that one and on a flowchart with a decision.
+ */
+export const MERMAID_PROMPT = "Convert this diagram to Mermaid code.";
+
 const DIAGRAM_START =
   /^\s*(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram(-v2)?|erDiagram|gantt|pie|mindmap|journey|gitGraph|timeline|quadrantChart|requirementDiagram|C4Context|block-beta|sankey-beta|xychart-beta|architecture-beta)\b/m;
 
@@ -420,7 +427,7 @@ class modelToolsHandler implements FormatHandler {
               role: "user",
               content: [
                 { type: "image", data: file.bytes },
-                { type: "text", text: "Convert this diagram into Mermaid code." },
+                { type: "text", text: MERMAID_PROMPT },
               ],
             },
           ],

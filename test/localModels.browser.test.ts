@@ -73,7 +73,7 @@ async function start() {
 afterAll(async () => {
   await browser?.close();
   await server?.close();
-});
+}, 60_000);
 
 /** Drops a file on the app, picks a tool by its label, converts, and returns the download. */
 async function useTool(file: string, tool: string, expectName: RegExp) {
@@ -137,8 +137,9 @@ async function useTool(file: string, tool: string, expectName: RegExp) {
   const title = await popupText();
   expect(title).toContain("Conversion complete!");
   for (let i = 0; i < 50; i++) {
+    // "._" files are macOS's AppleDouble sidecars on a FAT or exFAT drive
     const found = readdirSync(join(work, "downloads")).find(
-      (n) => expectName.test(n) && !n.endsWith(".crdownload"),
+      (n) => expectName.test(n) && !n.startsWith("._") && !n.endsWith(".crdownload"),
     );
     if (found) {
       await page.close();
@@ -171,7 +172,14 @@ run(
     const { text } = await useTool("jfk.wav", "Subtitles (AI)", /jfk\.srt$/);
     console.log(text);
     expect(text).toMatch(/^1\n00:00:0\d,\d{3} --> 00:00:\d\d,\d{3}\n/);
-    expect(text.toLowerCase()).toContain("ask not what your country can do for you");
+    // the words of all cues together, whatever the pauses cut them into
+    const words = text
+      .split("\n")
+      .filter((line) => line && !/^\d+$/.test(line) && !line.includes("-->"))
+      .join(" ")
+      .toLowerCase()
+      .replace(/[^a-z ]/g, "");
+    expect(words).toContain("ask not what your country can do for you");
   },
   20 * 60_000,
 );

@@ -237,3 +237,49 @@ test("a PDF with only an owner password stays locked, unless a password is given
   // any password asks for it to be unlocked
   expect(encrypted(await compress(restricted, { password: "anything" }))).toBe(false);
 });
+
+/** A one-page PDF with two lines of text in Helvetica. */
+function pdfWithText(lines: string[]) {
+  const doc = new PDFDocument();
+  const font = doc.addSimpleFont(new Font("Helvetica"));
+  const ops = lines
+    .map((line, i) => `BT /F1 12 Tf 50 ${700 - i * 20} Td (${line}) Tj ET`)
+    .join("\n");
+  doc.insertPage(-1, doc.addPage([0, 0, 595, 842], 0, { Font: { F1: font } }, ops));
+  return new Uint8Array(doc.saveToBuffer("").asUint8Array());
+}
+
+const pageText = (file: FileData) => open(file).loadPage(0).toStructuredText("").asText();
+
+test("redact removes the words from the text of the PDF, not only from view", async () => {
+  const bytes = pdfWithText(["Name: Jan Jansen", "IBAN NL91ABNA0417164300 for rent"]);
+  const words = await compress(bytes, { redact: "Jan Jansen" });
+  expect(pageText(words)).not.toContain("Jansen");
+  expect(pageText(words)).toContain("Name:");
+
+  const regex = await compress(bytes, { redact: "/NL\\d{2}[A-Z]{4}\\d{10}/" });
+  expect(pageText(regex)).not.toContain("NL91ABNA0417164300");
+  expect(pageText(regex)).toContain("for rent");
+});
+
+test("redactionTargets reads words or one regular expression", async () => {
+  const { redactionTargets } = await import("../../src/handlers/pdfTools.ts");
+  expect(redactionTargets(" a, b c ,", "")).toEqual(["a", "b c"]);
+  expect(redactionTargets("/\\d+/", "call 0612 or 0613, again 0612")).toEqual(["0612", "0613"]);
+  expect(() => redactionTargets("/(/", "x")).toThrow("regular expression");
+});
+
+test("sign puts the signature image on the chosen page", async () => {
+  const png = new Pixmap(ColorSpace.DeviceRGB, [0, 0, 40, 20], false);
+  png.clear(0);
+  const dataUrl = `data:image/png;base64,${Buffer.from(png.asPNG()).toString("base64")}`;
+  const signed = await compress(pdfWithPages(3), {
+    signature: dataUrl,
+    signaturePage: 2,
+    signatureCorner: "top left",
+  });
+  const doc = open(signed);
+  const xobjects = (i: number) => doc.findPage(i).getInheritable("Resources").get("XObject");
+  expect(xobjects(1).get("StampSignature").isNull()).toBe(false);
+  expect(xobjects(0).isNull() || xobjects(0).get("StampSignature").isNull()).toBe(true);
+});

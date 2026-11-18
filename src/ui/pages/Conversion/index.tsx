@@ -24,6 +24,7 @@ import {
   type TargetGroup,
 } from "src/batch";
 import { stripExt } from "src/common";
+import { describeFound, findMetadata } from "src/handlers/stripMetadata";
 import { filePath } from "src/common/path.ts";
 
 import ConversionHeader from "src/ui/components/Conversion/ConversionHeader";
@@ -44,6 +45,17 @@ import {
   ImageUpscale,
   Images,
   Info,
+  Archive,
+  ALargeSmall,
+  Highlighter,
+  Signature,
+  Type,
+  Lock,
+  LockOpen,
+  Palette,
+  Presentation,
+  ShieldOff,
+  SquareKanban,
   Layers,
   LayoutDashboard,
   LayoutGrid,
@@ -62,7 +74,9 @@ import { ProgressStore, ROUTE_FAILED } from "src/ui/ProgressStore";
 import StyledButton, { ButtonVariant } from "src/ui/components/StyledButton";
 import SettingsPanel from "src/ui/components/Conversion/SettingsPanel";
 import {
+  ConversionSettings,
   SettingsPanelOpen,
+  setSetting,
   ZipPassword,
   applicableSettings,
   availableSettings,
@@ -93,6 +107,38 @@ const TOOLS: Record<string, { label: string; icon: preact.JSX.Element }> = {
   collage: { label: "Collage", icon: <LayoutDashboard size={14} /> },
   metadata: { label: "Metadata", icon: <Info size={14} /> },
   ts: { label: "TypeScript types", icon: <Braces size={14} /> },
+  trim: { label: "Trim", icon: <Scissors size={14} /> },
+  "clean-jpeg": { label: "Remove metadata", icon: <ShieldOff size={14} /> },
+  "clean-png": { label: "Remove metadata", icon: <ShieldOff size={14} /> },
+  "clean-webp": { label: "Remove metadata", icon: <ShieldOff size={14} /> },
+  looks: { label: "Theme from its colours", icon: <Palette size={14} /> },
+  slides: { label: "Slides", icon: <Presentation size={14} /> },
+  "slides-pdf": { label: "Slides as PDF", icon: <Presentation size={14} /> },
+  kanban: { label: "Board", icon: <SquareKanban size={14} /> },
+  "archived-page": { label: "Page in one file", icon: <Archive size={14} /> },
+  "woff2-subset": { label: "Subset for the web", icon: <Type size={14} /> },
+  "ttf-subset": { label: "Subset as TTF", icon: <Type size={14} /> },
+  "font-specimen": { label: "Specimen", icon: <ALargeSmall size={14} /> },
+  "pdf-redacted": { label: "Redact", icon: <Highlighter size={14} /> },
+  "pdf-signed": { label: "Sign", icon: <Signature size={14} /> },
+  age: { label: "Encrypt (age)", icon: <Lock size={14} /> },
+  "age-opened": { label: "Decrypt", icon: <LockOpen size={14} /> },
+};
+
+/** Video and sound: what has a start and an end to cut between. */
+const isTimed = (format: FileFormat) => {
+  const categories = Array.isArray(format.category) ? format.category : [format.category];
+  return (
+    (categories.includes("video") && !categories.includes("image")) || categories.includes("audio")
+  );
+};
+
+/** Tools that can't run without one setting, so picking them opens the settings. */
+const NEEDS_SETTING: Record<string, string> = {
+  age: "passphrase",
+  "age-opened": "passphrase",
+  "pdf-redacted": "redact",
+  "pdf-signed": "signature",
 };
 
 function countAvailableFormats(
@@ -348,6 +394,11 @@ export default function Conversion() {
         outputMime = toFormat.mime;
 
         let line = `${label}: via ${output.path.map((c) => c.format.format).join(" → ")}.`;
+        // what was in the pictures, above all where they were taken, is the point of the tool
+        if (toFormat.format.startsWith("clean-")) {
+          for (const input of inputs)
+            summary.push(describeFound(input.name, findMetadata(input.bytes)));
+        }
         if (compress) {
           const outputSize = totalSize(output.files);
           const saved = 1 - outputSize / inputSize;
@@ -434,10 +485,17 @@ export default function Conversion() {
 
   const tools =
     step === "select-to" && fromOption
-      ? toolsFor(fromOption[0], toSiblings.length + 1, "gpu" in navigator).flatMap((id) => {
-          const option = [...allOptions].find(([format]) => format.to && format.format === id);
-          return option ? [{ id, option }] : [];
-        })
+      ? [
+          // a cut keeps the format: the trimmer in the settings marks it
+          ...(isTimed(fromOption[0]) && compressors.length
+            ? [{ id: "trim", option: compressors[0] }]
+            : []),
+          ...toolsFor(fromOption[0], toSiblings.length + 1, "gpu" in navigator).flatMap((id) => {
+            const matches = [...allOptions].filter(([format]) => format.to && format.format === id);
+            const option = matches.find(([f]) => f.mime === fromOption[0].mime) ?? matches[0];
+            return option ? [{ id, option }] : [];
+          }),
+        ]
       : [];
 
   const canProceed = step === "select-from" ? !!fromOption : allReady;
@@ -491,14 +549,30 @@ export default function Conversion() {
             tools={
               tools.length > 0 &&
               tools.map(({ id, option }) => {
-                const selected = toOption?.[0].format === id;
+                const selected =
+                  id === "trim"
+                    ? !!toOption &&
+                      toOption[0] === option[0] &&
+                      !!ConversionSettings.value.copyStreams
+                    : toOption?.[0].format === id;
                 return (
                   <Chip
                     key={id}
                     label={TOOLS[id].label}
                     icon={TOOLS[id].icon}
                     selected={selected}
-                    onClick={() => handleToSelect(selected ? null : option)}
+                    onClick={() => {
+                      handleToSelect(selected ? null : option);
+                      if (id === "trim" && !selected) {
+                        setSetting("copyStreams", true);
+                        SettingsPanelOpen.value = true;
+                      }
+                      // these tools do nothing without a setting: show where it goes
+                      const needs = NEEDS_SETTING[id];
+                      if (!selected && needs && !ConversionSettings.value[needs]) {
+                        SettingsPanelOpen.value = true;
+                      }
+                    }}
                   />
                 );
               })
@@ -508,6 +582,7 @@ export default function Conversion() {
         {SettingsPanelOpen.value && step !== "converting" && (
           <SettingsPanel
             specs={settingSpecs}
+            trimFile={activeFile && fromOption && isTimed(fromOption[0]) ? activeFile : undefined}
             formatName={toFormats.map((f) => f.format.toUpperCase()).join(", ") || undefined}
           />
         )}

@@ -3,7 +3,7 @@ import { FormatDefinition } from "../FormatHandler.ts";
 import Formats, { Category } from "src/Formats.ts";
 import type { ConvertOptions } from "src/Settings.ts";
 import type { ConvertContext } from "src/ui/ProgressStore.ts";
-import { Document, Font, Image, PDFDocument } from "mupdf";
+import { Document, Font, Image, PDFDocument, PDFPage } from "mupdf";
 import { changeExt } from "src/common/index.ts";
 
 // its own format, so that picking it is a request to split rather than a PDF to PDF no-op
@@ -192,6 +192,123 @@ function stamp(doc: PDFDocument, { pageNumbers, watermark }: ConvertOptions) {
   }
 }
 
+/**
+ * What a "Redact text" setting asks to find: one `/regular expression/flags`, or words and
+ * phrases separated by commas.
+ */
+export function redactionTargets(setting: string, pageText: string): string[] {
+  const regex = /^\/(.+)\/([a-z]*)$/s.exec(setting.trim());
+  if (!regex)
+    return setting
+      .split(",")
+      .map((w) => w.trim())
+      .filter(Boolean);
+  const flags = regex[2].includes("g") ? regex[2] : regex[2] + "g";
+  let pattern: RegExp;
+  try {
+    pattern = new RegExp(regex[1], flags);
+  } catch {
+    throw new Error(`"${setting}" is not a regular expression this browser can read.`);
+  }
+  return [...new Set([...pageText.matchAll(pattern)].map((m) => m[0]).filter((m) => m.trim()))];
+}
+
+/**
+ * Blacks out every place the text occurs and removes what is under it from the file: the
+ * text itself, and the pixels of images under it. A box drawn over text would leave the text
+ * in the file for anyone to copy; this doesn't.
+ * @returns How many places were blacked out.
+ */
+function redact(doc: PDFDocument, setting: string): number {
+  let count = 0;
+  for (let i = 0; i < doc.countPages(); i++) {
+    const page = doc.loadPage(i);
+    const text = page.toStructuredText("preserve-whitespace").asText();
+    let marked = 0;
+    for (const target of redactionTargets(setting, text)) {
+      for (const quads of page.search(target, "")) {
+        const annot = page.createAnnotation("Redact");
+        annot.setQuadPoints(quads);
+        marked++;
+      }
+    }
+    if (marked) {
+      page.applyRedactions(
+        true,
+        PDFPage.REDACT_IMAGE_PIXELS,
+        PDFPage.REDACT_LINE_ART_NONE,
+        PDFPage.REDACT_TEXT_REMOVE,
+      );
+      count += marked;
+    }
+  }
+  return count;
+}
+
+/** The PNG of a signature: the drawn one as it is, a typed one written in a handwriting font. */
+async function signaturePng(signature: string): Promise<Uint8Array> {
+  const drawn = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(signature);
+  if (drawn) return Uint8Array.from(atob(drawn[1]), (c) => c.charCodeAt(0));
+  const font =
+    'italic 72px "Snell Roundhand", "Segoe Script", "Brush Script MT", "Apple Chancery", cursive';
+  const measure = new OffscreenCanvas(1, 1).getContext("2d")!;
+  measure.font = font;
+  const width = Math.ceil(measure.measureText(signature).width) + 40;
+  const canvas = new OffscreenCanvas(Math.min(width, 4000), 120);
+  const c = canvas.getContext("2d")!;
+  c.font = font;
+  c.fillStyle = "#14286e";
+  c.textBaseline = "middle";
+  c.fillText(signature, 20, 62);
+  return new Uint8Array(await (await canvas.convertToBlob({ type: "image/png" })).arrayBuffer());
+}
+
+/** Puts the signature on one page, in a corner, over what is there. */
+async function sign(
+  doc: PDFDocument,
+  { signature, signaturePage, signatureCorner }: ConvertOptions,
+) {
+  if (!signature) return;
+  const count = doc.countPages();
+  const index = Math.min(count, signaturePage ?? count) - 1;
+  const image = new Image(await signaturePng(signature));
+  const page = doc.findPage(index);
+  let resources = page.getInheritable("Resources");
+  if (resources.isNull()) {
+    resources = doc.newDictionary();
+    page.put("Resources", resources);
+  }
+  if (resources.get("XObject").isNull()) resources.put("XObject", doc.newDictionary());
+  resources.get("XObject").put("StampSignature", doc.addImage(image));
+
+  const cropBox = page.getInheritable("CropBox");
+  const box = cropBox.isNull() ? page.getInheritable("MediaBox") : cropBox;
+  const [ax, ay, bx, by] = [0, 1, 2, 3].map((n) => box.get(n).asNumber());
+  const [x0, y0, x1, y1] = [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)];
+  // at most a third of the page wide and 60 points high, keeping its proportions
+  const ratio = image.getHeight() / image.getWidth();
+  let w = Math.min((x1 - x0) / 3, 200);
+  let h = w * ratio;
+  if (h > 60) [w, h] = [60 / ratio, 60];
+  const margin = 36;
+  const corner = signatureCorner ?? "bottom right";
+  const x = corner.endsWith("left") ? x0 + margin : x1 - margin - w;
+  const y = corner.startsWith("top") ? y1 - margin - h : y0 + margin;
+
+  const contents = doc.newArray();
+  contents.push(doc.addStream("q\n", {}));
+  const old = page.get("Contents");
+  if (old.isArray()) old.forEach((part) => contents.push(part));
+  else if (!old.isNull()) contents.push(old);
+  contents.push(
+    doc.addStream(
+      `Q\nq ${w.toFixed(2)} 0 0 ${h.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)} cm /StampSignature Do Q\n`,
+      {},
+    ),
+  );
+  page.put("Contents", contents);
+}
+
 /** Save options that lock the PDF with `protect`, or unlock it when it was opened with a password. */
 function lockOptions({ password, protect }: ConvertOptions) {
   if (protect) return `,encrypt=aes-256,user-password=${protect},owner-password=${protect}`;
@@ -222,6 +339,10 @@ export class compressPdfHandler implements FormatHandler {
         protect: true,
         pageNumbers: true,
         watermark: true,
+        redact: true,
+        signature: true,
+        signaturePage: true,
+        signatureCorner: true,
       })
       .fromTo(),
   ];
@@ -238,10 +359,18 @@ export class compressPdfHandler implements FormatHandler {
     ctx?: ConvertContext,
   ): Promise<FileData[]> {
     const settings = ctx?.options ?? {};
-    return inputFiles.map((file) => {
+    const outputs: FileData[] = [];
+    for (const file of inputFiles) {
       ctx?.throwIfAborted();
       let doc = openEdited(file, settings);
+      if (settings.redact) {
+        const count = redact(doc, settings.redact);
+        ctx?.log(
+          `${file.name}: ${count ? `blacked out ${count} places` : "the text to redact was not found"}.`,
+        );
+      }
       stamp(doc, settings);
+      await sign(doc, settings);
       doc.subsetFonts();
       if (settings.quality) {
         // on the saved result, so that a JPEG is compared with the image as losslessly
@@ -251,8 +380,71 @@ export class compressPdfHandler implements FormatHandler {
         doc = openPdf({ name: file.name, bytes: save(doc, COMPRESSED + decrypt) });
         recompressImages(doc, settings.quality);
       }
-      return { name: file.name, bytes: save(doc, COMPRESSED + lockOptions(settings)) };
-    });
+      outputs.push({ name: file.name, bytes: save(doc, COMPRESSED + lockOptions(settings)) });
+    }
+    return outputs;
+  }
+}
+
+// their own formats, so that the Tools row can offer them as tools
+const PDF_REDACTED = new FormatDefinition(
+  "PDF, redacted",
+  "pdf-redacted",
+  "pdf",
+  "application/pdf",
+  Category.DOCUMENT,
+);
+const PDF_SIGNED = new FormatDefinition(
+  "PDF, signed",
+  "pdf-signed",
+  "pdf",
+  "application/pdf",
+  Category.DOCUMENT,
+);
+
+/** Redact and Sign as tools of their own: the same work as a PDF to PDF with those settings. */
+export class pdfEditHandler implements FormatHandler {
+  public readonly name = "pdfEdit";
+  public supportedFormats = [
+    Formats.PDF.builder("pdf").from(),
+    PDF_REDACTED.builder("pdf")
+      .lossless()
+      .options({ redact: true, password: true, protect: true })
+      .to(),
+    PDF_SIGNED.builder("pdf")
+      .lossless()
+      .options({
+        signature: true,
+        signaturePage: true,
+        signatureCorner: true,
+        password: true,
+        protect: true,
+      })
+      .to(),
+  ];
+  public ready = false;
+  readonly #inner = new compressPdfHandler();
+
+  async init() {
+    this.ready = true;
+  }
+
+  async doConvert(
+    inputFiles: FileData[],
+    inputFormat: FileFormat,
+    outputFormat: FileFormat,
+    ctx?: ConvertContext,
+  ): Promise<FileData[]> {
+    const options = ctx?.options ?? {};
+    if (outputFormat.format === "pdf-redacted" && !options.redact) {
+      throw new Error("Enter the text to redact in Settings first.");
+    }
+    if (outputFormat.format === "pdf-signed" && !options.signature) {
+      throw new Error("Draw or type the signature in Settings first.");
+    }
+    const suffix = outputFormat.format === "pdf-redacted" ? "-redacted" : "-signed";
+    const outputs = await this.#inner.doConvert(inputFiles, inputFormat, outputFormat, ctx);
+    return outputs.map((file) => ({ ...file, name: changeExt(file.name, "pdf", suffix) }));
   }
 }
 

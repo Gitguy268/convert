@@ -27,7 +27,7 @@ export function categoriesOf(format: FileFormat) {
  */
 export function tidyEdits(settings: Edits, userSettings: Edits = settings): Edits {
   const out: Edits = { ...settings };
-  for (const key of ["pages", "password", "protect", "watermark"]) {
+  for (const key of ["pages", "password", "protect", "watermark", "redact", "signature"]) {
     if (typeof out[key] === "string") out[key] = (out[key] as string).trim() || undefined;
     if (out[key] === undefined) delete out[key];
   }
@@ -35,7 +35,14 @@ export function tidyEdits(settings: Edits, userSettings: Edits = settings): Edit
   // filters re-encode the audio, so a stream can't be copied as it is
   if (hasAudioEdits(out)) delete out.copyStreams;
   // editing pages is not a request to re-encode the images at the default quality
-  const pdfEdit = out.pages || out.rotate || out.password || out.protect || out.pageNumbers;
+  const pdfEdit =
+    out.pages ||
+    out.rotate ||
+    out.password ||
+    out.protect ||
+    out.pageNumbers ||
+    out.redact ||
+    out.signature;
   if ((pdfEdit || out.watermark) && !userSettings.quality) delete out.quality;
   // an end before the start would produce an empty file
   if (out.start && out.end && (out.end as number) <= (out.start as number)) delete out.end;
@@ -57,6 +64,8 @@ export function altersContent(settings: Edits) {
     settings.protect ||
     settings.pageNumbers ||
     settings.watermark ||
+    settings.redact ||
+    settings.signature ||
     hasAudioEdits(settings)
   );
 }

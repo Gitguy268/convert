@@ -7,6 +7,11 @@ export const SettingCategories = {
   video: { label: "Video" },
   audio: { label: "Audio" },
   pdf: { label: "PDF", note: "Pages are numbers and ranges, such as 2-5,8." },
+  look: { label: "Look" },
+  secret: {
+    label: "Encryption",
+    note: "Nothing is sent anywhere. Without the passphrase the file can't be opened again.",
+  },
   other: { label: "Other" },
 } satisfies Record<string, { label: string; note?: string }>;
 
@@ -14,6 +19,8 @@ export interface OptionDisplay {
   label?: string;
   unit?: string;
   category?: keyof typeof SettingCategories;
+  /** A field other than the plain one for its type (src/ui/components/Conversion/SettingsPanel). */
+  widget?: "password" | "signature";
 }
 
 export type OptionSpec = OptionDisplay &
@@ -67,6 +74,19 @@ export const Settings = {
   password: { category: "pdf", label: "Password to open it", type: "string", maxLength: 100, pattern: "[^,=]+" },
   protect: { category: "pdf", label: "Protect with password", type: "string", maxLength: 100, pattern: "[^,=]+" },
   pageNumbers: { category: "pdf", label: "Number the pages", type: "boolean" },
+  redact: { category: "pdf", label: "Redact text", type: "string", maxLength: 500 },
+  signature: { category: "pdf", label: "Signature", type: "string", maxLength: 400_000, widget: "signature" },
+  signaturePage: { category: "pdf", label: "Signature on page", type: "number", min: 1, integer: true },
+  signatureCorner: { category: "pdf", label: "Signature corner", type: "enum", values: ["bottom right", "bottom left", "top right", "top left"] },
+  // look: frames, slides, boards and themes
+  frameStyle: { category: "look", label: "Frame", type: "enum", values: ["card", "Win98 window", "liquid glass window", "macOS window"] },
+  frameTitle: { category: "look", label: "Window title", type: "string", maxLength: 80 },
+  background: { category: "look", label: "Background", type: "enum", values: ["sky", "sunset", "mint", "graphite", "white", "transparent"] },
+  look: { category: "look", label: "Look", type: "enum", values: ["plain", "Win98", "liquid glass", "Xiao"] },
+  // fonts
+  subsetText: { category: "other", label: "Characters to keep", type: "string", maxLength: 5000 },
+  // encryption
+  passphrase: { category: "secret", label: "Passphrase", type: "string", maxLength: 200, widget: "password" },
   // other
   stripMetadata: { category: "other", label: "Remove metadata", type: "boolean" },
   watermark: { category: "other", label: "Watermark", type: "string", maxLength: 100 },

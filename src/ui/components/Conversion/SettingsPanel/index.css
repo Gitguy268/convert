@@ -254,3 +254,119 @@
 :root[data-theme="dark"] .settings-field-choices label:has(input:checked) {
   background: var(--bg-light);
 }
+
+.settings-signature {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-signature-pad {
+  width: 100%;
+  height: 110px;
+  border-radius: 10px;
+  border: 1px dashed currentColor;
+  background: #fff;
+  touch-action: none;
+  cursor: crosshair;
+  opacity: 0.95;
+}
+
+.settings-signature-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-signature-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.trimmer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trimmer-video {
+  width: 100%;
+  max-height: 220px;
+  border-radius: 12px;
+  background: #000;
+}
+
+.trimmer-audio {
+  width: 100%;
+  height: 40px;
+}
+
+.trimmer-track {
+  position: relative;
+  height: 54px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.trimmer-stills {
+  display: flex;
+  height: 100%;
+}
+
+.trimmer-stills img {
+  flex: 1;
+  min-width: 0;
+  object-fit: cover;
+}
+
+/* what is cut off is dimmed, the cut itself framed like a glass pane */
+.trimmer-cut {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border: 2px solid var(--accent-color, #2f6fed);
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 999px rgb(0 0 0 / 0.45),
+    inset 0 1px 0 rgb(255 255 255 / 0.5);
+  backdrop-filter: saturate(140%);
+}
+
+.trimmer-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #fff;
+  box-shadow: 0 0 4px rgb(0 0 0 / 0.6);
+}
+
+.trimmer-ranges {
+  display: grid;
+  gap: 4px;
+}
+
+.trimmer-ranges label {
+  display: grid;
+  grid-template-columns: 7.5em 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+}
+
+.trimmer-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.trimmer-length {
+  margin-left: auto;
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}

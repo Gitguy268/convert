@@ -261,3 +261,9 @@
     grid-row: auto;
   }
 }
+
+/* a song has no picture: the player alone, without the black screen */
+.studio-media:has(.studio-audio) {
+  background: none;
+  align-content: center;
+}

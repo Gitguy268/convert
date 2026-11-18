@@ -104,6 +104,8 @@ This is a fork of [p2r3/convert](https://github.com/p2r3/convert). The rest of t
 - **Watermarks and speed.** The watermark setting also works for pictures, and the speed setting for video.
 - **Mermaid and TypeScript.** Mermaid diagrams (`.mmd`) become SVG, and from there PNG, with [mermaid](https://github.com/mermaid-js/mermaid). Its ELK layout is left out, because elkjs is EPL-2.0. A JSON file becomes TypeScript interfaces, with optional keys and unions where the objects of a list differ.
 
+<img src="docs/tools-row.png" alt="The Tools row for a PNG: Read text, Remove background, Upscale, Favicon set, Frame screenshot, Halftone print, Depth map, Remove metadata, Theme from its colours, 3D model, 3D print (STL), Diagram to Mermaid (AI), Receipt to CSV (AI) and Encrypt (age)" width="860">
+
 - **Tools that keep your files private.** Fourteen tools work on the file in this browser tab and send it nowhere:
   - **Frame screenshot** now also puts a picture in a Windows 98, liquid glass or macOS window, with a title and one of six backgrounds.
   - **Remove metadata** takes the camera, time, place and comments out of a JPEG, PNG or WebP without re-encoding it. The orientation and colour profile stay. The result lists what was in each file, the GPS position first.
@@ -116,6 +118,8 @@ This is a fork of [p2r3/convert](https://github.com/p2r3/convert). The rest of t
   - **Trim** shows the video or song with in and out points, a strip of stills and frame steps, over the start and end settings.
   - **3D model** and **3D print (STL)** guess an object's shape from one picture with [forma3d-tiny-4](https://huggingface.co/Lucasgitguy-co/forma3d-tiny-4) on ONNX Runtime (1.7 MB, part of this site). The output is Gaussian splats as PLY, or a closed mesh as GLB, STL or OBJ.
   - **Diagram to Mermaid** ([MiniCPM-V Mermaid](https://huggingface.co/Lucasgitguy-co/minicpm-mermaid-gguf)), **Receipt to CSV** (Xiaomi-OCR-0 with the [CORD receipt LoRA](https://huggingface.co/Lucasgitguy-co/Xiaomi-OCR-0-CORD-LoRA-GGUF)) and **Subtitles** ([Qwen3-ASR 0.6B](https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF)) run an AI model in the browser on llama.cpp ([wllama](https://github.com/ngxson/wllama)). The first time, the page says how large the model is and downloads it from Hugging Face only when you agree. It checks every 64 MiB against its SHA-256 and keeps the model in the browser. You can also pick the GGUF files from your own disk. A diagram or subtitles then open in an editor: Mermaid with a live drawing, or subtitles with the waveform, the video and a burn-in to MP4.
+
+<img src="docs/studio-mermaid.png" alt="The diagram editor: Mermaid code for a four-step flowchart on the left, its drawing on the right, and buttons to save it as .mmd, SVG or PNG" width="425"> <img src="docs/studio-subtitles.png" alt="The subtitle editor for a speech: four timed subtitles that can be edited, split, joined or deleted, a player, and the waveform with each subtitle as a band over it" width="425">
 
 <br clear="right">
 

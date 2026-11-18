@@ -516,3 +516,32 @@ test("Font Lab subsets a font to the characters asked for and describes it", asy
   expect(html).toContain("DejaVu Sans Mono Book");
   expect(html).toContain('format("truetype")');
 });
+
+test("image to 3D: splats above the threshold, a standard PLY and a closed surface", async () => {
+  const { selectSplats, splatPly, densityField, marchingCubes, CELLS } =
+    await import("../../src/handlers/imageTo3d.ts");
+  const raw = new Float32Array(CELLS * 15);
+  // one confident cell at the centre and one below the threshold
+  raw.set([3, 0, 0, 0, 1, 0, 0, 0.18, 0.18, 0.18, 1, 0, 0, 0, 0.9], 0);
+  raw.set([0.2, 0.3, 0, 0, 0, 1, 0, 0.05, 0.05, 0.05, 1, 0, 0, 0, 0.9], 15);
+  const splats = selectSplats(raw);
+  expect(splats.length).toBe(1);
+  expect(splats[0].rgb).toEqual([1, 0, 0]);
+
+  const ply = splatPly(splats);
+  const header = new TextDecoder("latin1").decode(ply);
+  expect(header).toStartWith(
+    "ply\nformat binary_little_endian 1.0\nelement vertex 1\nproperty float x\n",
+  );
+  expect(ply.length).toBe(header.indexOf("end_header\n") + 11 + 17 * 4);
+
+  const { positions, colours } = marchingCubes(densityField(splats));
+  expect(positions.length).toBeGreaterThan(300);
+  // a ball: every point about as far from the centre, and red
+  const radii = [];
+  for (let i = 0; i < positions.length; i += 3)
+    radii.push(Math.hypot(positions[i], positions[i + 1], positions[i + 2]));
+  expect(Math.max(...radii) - Math.min(...radii)).toBeLessThan(0.03);
+  expect(colours[0]).toBeCloseTo(1, 3);
+  expect(colours[1]).toBeCloseTo(0, 3);
+});

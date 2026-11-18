@@ -147,7 +147,16 @@ test("toolsFor offers the tools that fit the input", () => {
   const png = Formats.PNG.builder("png").from();
   const pdf = Formats.PDF.builder("pdf").from();
   const mp4 = Formats.MP4.builder("mp4").from();
-  const pictureTools = ["favicon", "framed", "halftone", "depth", "clean-png", "looks"];
+  const pictureTools = [
+    "favicon",
+    "framed",
+    "halftone",
+    "depth",
+    "clean-png",
+    "looks",
+    "mesh-3d-glb",
+    "mesh-3d-stl",
+  ];
 
   expect(toolsFor(png, 1, true)).toEqual([
     "ocr",
@@ -211,6 +220,8 @@ test("toolsFor leaves out what cannot work: merging one PDF, upscaling without W
     "depth",
     "clean-png",
     "looks",
+    "mesh-3d-glb",
+    "mesh-3d-stl",
     "age",
   ]);
   // a collage of one picture is that picture

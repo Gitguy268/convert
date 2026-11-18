@@ -47,6 +47,7 @@ import {
   Info,
   Archive,
   ALargeSmall,
+  Box,
   Highlighter,
   Signature,
   Type,
@@ -121,6 +122,8 @@ const TOOLS: Record<string, { label: string; icon: preact.JSX.Element }> = {
   "font-specimen": { label: "Specimen", icon: <ALargeSmall size={14} /> },
   "pdf-redacted": { label: "Redact", icon: <Highlighter size={14} /> },
   "pdf-signed": { label: "Sign", icon: <Signature size={14} /> },
+  "mesh-3d-glb": { label: "3D model", icon: <Box size={14} /> },
+  "mesh-3d-stl": { label: "3D print (STL)", icon: <Box size={14} /> },
   age: { label: "Encrypt (age)", icon: <Lock size={14} /> },
   "age-opened": { label: "Decrypt", icon: <LockOpen size={14} /> },
 };

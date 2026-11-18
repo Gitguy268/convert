@@ -216,6 +216,7 @@ function mediaToolsFor(from: FileFormat, sameTypeCount: number, hasWebGpu: boole
       "depth",
       ...(clean ? [clean] : []),
       ...(clean ? ["looks"] : []),
+      ...(clean ? ["mesh-3d-glb", "mesh-3d-stl"] : []),
       ...(sameTypeCount > 1 ? ["collage", "pdf-from-images"] : []),
     ];
   }

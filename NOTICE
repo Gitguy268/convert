@@ -71,9 +71,42 @@ BrowseryTools (AGPL-3.0) https://github.com/aghyad97/browserytools
 ToolKnit (MIT)           https://github.com/ZihangDong/toolknit
   Finding the tempo of a song and changing the speed of a video. Done here
   with FFmpeg; no code was taken. Its halftone engine is used, see below.
+SingleFile (AGPL-3.0)    https://github.com/gildas-lormeau/SingleFile
+  Saving a web page as one HTML file with everything inlined. Written here
+  for saved pages and MHTML; no code was taken.
+Obsidian Tasks (MIT)     https://github.com/obsidian-tasks-group/obsidian-tasks
+  The task syntax the board reads and writes, as textarea-plus does.
 
 Third-party code and data added by this fork
 --------------------------------------------
+
+typage, age-encryption (BSD-3-Clause), Filippo Valsorda
+                                        https://github.com/FiloSottile/typage
+  Encrypting and opening age files.
+harfbuzzjs (MIT), the harfbuzzjs project authors
+                                        https://github.com/harfbuzz/harfbuzzjs
+  HarfBuzz's font subsetter, for Font Lab.
+wllama (MIT), Xuan Son Nguyen           https://github.com/ngxson/wllama
+llama.cpp (MIT), the ggml authors       https://github.com/ggml-org/llama.cpp
+  The language models of the model tools, in public/vendor/wllama/ with two
+  local changes (see its README).
+forma3d-tiny-4 (Apache-2.0), Lucasgitguy-co
+                                        https://huggingface.co/Lucasgitguy-co/forma3d-tiny-4
+  Image to 3D: exported to ONNX in src/handlers/imageTo3d/, with its licence
+  beside it. Trained on Amazon Berkeley Objects (CC BY 4.0, Amazon.com and
+  the ABO contributors, as GLB by CodePawl); test/resources/abo-chair.png is
+  one of its example renders of an ABO object. No endorsement implied.
+Colour maths and theme codes of textarea (MIT), Lucas Van De Weerd
+                                        https://github.com/Gitguy268/textarea
+  Contrast, mixing and the textarea-theme: code, in src/handlers/looks.ts.
+
+Models the model tools download on first use, after asking (not part of
+this repository or its build):
+  MiniCPM-V 4.7 1B Mermaid (Apache-2.0)   Lucasgitguy-co/minicpm-mermaid-gguf
+  Xiaomi-OCR-0 (Apache-2.0), GGUF by prithivMLmods, with the CORD receipt
+    LoRA (Apache-2.0; trained on CORD v2, CC BY 4.0, NAVER CLOVA)
+                                          Lucasgitguy-co/Xiaomi-OCR-0-CORD-LoRA-GGUF
+  Qwen3-ASR 0.6B (Apache-2.0), GGUF by ggml-org   ggml-org/Qwen3-ASR-0.6B-GGUF
 
 zip.js (BSD-3-Clause), Gildas Lormeau   https://github.com/gildas-lormeau/zip.js
   Bundling several outputs in one zip, with optional AES encryption.
@@ -196,6 +229,7 @@ and compatible with GPL version 3:
                                          by this fork, see above)
   Depth Anything V2 Small weights        Apache-2.0 (added by this fork)
   chevrotain, used by mermaid            Apache-2.0 (added by this fork)
+  forma3d-tiny-4 weights (ONNX)          Apache-2.0 (added by this fork)
 
 @ffmpeg/core is GPL-2.0-or-later. The mediabunny packages are MPL-2.0, which
 can be combined with the GPL. The remaining dependencies are under MIT, ISC,

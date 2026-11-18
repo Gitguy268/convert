@@ -5,6 +5,25 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Browser-local tools (2026-11-18)
+
+Fourteen tools that work on the file in the browser, from section C of the project ideas:
+
+- **Frame screenshot** got windows: Windows 98, liquid glass and macOS, a title, and backgrounds (`src/handlers/imageTools.ts`).
+- **Remove metadata** for JPEG, PNG and WebP without re-encoding: orientation and colour profile stay, the result lists what was found with the GPS position first (`src/handlers/stripMetadata.ts`).
+- **Encrypt (age)** and **Decrypt**: any file, or several as one vault zip, with a passphrase or age public keys (`src/handlers/age.ts`, `age-encryption`).
+- **Slides**: a Markdown or text note as an offline HTML deck or a PDF, in four looks (`src/handlers/slides.ts`, `src/common/markdown.ts`, `src/common/looks.ts`).
+- **Board**: the Obsidian Tasks lines of a textarea-plus note as a Kanban board that saves the same note back (`src/handlers/kanban.ts`).
+- **Theme from its colours**: a picture or a palette as CSS for the classic, Windows 98, liquid glass and Xiao looks, with textarea theme codes (`src/handlers/looks.ts`).
+- **Page in one file**: MHTML or a zipped saved page as one HTML file, everything inlined, no script (`src/handlers/archive.ts`).
+- **Font Lab**: subset to WOFF2 or TTF with HarfBuzz, and a specimen page that compares fonts (`src/handlers/fontLab.ts`, `harfbuzzjs`).
+- **Redact** (words or a regular expression, removed from the file) and **Sign** (drawn or typed) for PDFs (`src/handlers/pdfTools.ts`, the signature pad in the settings panel).
+- **Trim**: a preview with in and out points in the settings panel (`src/ui/components/Conversion/SettingsPanel/Trimmer.tsx`).
+- **3D model** and **3D print (STL)** from a picture with forma3d-tiny-4 on ONNX Runtime: Gaussian splats, and a closed mesh by marching cubes (`src/handlers/imageTo3d.ts`).
+- **Diagram to Mermaid**, **Receipt to CSV** and **Subtitles**, with models that run in the browser on llama.cpp (wllama): downloaded from Hugging Face once after asking, checked per 64 MiB and kept in the browser, or picked from disk (`src/handlers/modelTools.ts`, `src/localModels/`, `src/ui/components/ModelDialog/`, `public/vendor/wllama/`). The CSP now allows connections to Hugging Face, and nowhere else.
+- An editor sheet for Mermaid (live drawing, SVG and PNG) and subtitles (waveform, timing, burn-in to MP4) (`src/ui/components/Studio/`).
+- Tests: `test/handlers/localTools.test.ts`, `test/handlers/modelTools.test.ts`, more in `test/handlers/pdfTools.test.ts` and `test/batch.test.ts`, the built app in `test/localTools.browser.test.ts`, and the model tools end to end in `test/localModels.browser.test.ts` (only with `MODEL_E2E=1`).
+
 ### Synced with upstream (2026-11-15)
 
 Merged p2r3/convert up to `45b889d` (109 upstream commits): its own FFmpeg build, prebuilts in GitHub Releases, the settings panel (`src/Settings.ts`), keyboard navigation, browsing formats without a file, the `ANY` format for archives, strict CSP with mini-coi, more three.js formats, new handlers, and GPL-2.0-or-later. How the fork's work fits on top:

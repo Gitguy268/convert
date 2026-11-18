@@ -103,6 +103,7 @@ async function convert(
       }
       const out = await window.tryConvertByTraversing(data, from, to, { settings });
       if (!out) return null;
+      // oxlint-disable-next-line unicorn/consistent-function-scoping -- runs inside the page
       const b64 = (bytes: Uint8Array) => {
         let s = "";
         for (let i = 0; i < bytes.length; i += 0x8000)

@@ -117,9 +117,12 @@ function ModelDialog({ id, onDone }: { id: ModelId; onDone: (ready: boolean) => 
 export async function ensureModel(id: ModelId): Promise<boolean> {
   if ((await modelState(id)) !== "missing") return true;
   return new Promise((resolve) => {
+    let stop: (() => void) | undefined;
     const finish = (ready: boolean) => {
-      closePopup();
+      // settled before the popup closes: closing it would otherwise answer "no" first
+      stop?.();
       resolve(ready);
+      closePopup();
     };
     PopupData.value = {
       dismissible: false,
@@ -128,11 +131,8 @@ export async function ensureModel(id: ModelId): Promise<boolean> {
     };
     openPopup();
     // closed some other way (it can't be by Escape or a click outside, but be safe)
-    const stop = popupOpen.subscribe((open) => {
-      if (!open) {
-        stop();
-        resolve(false);
-      }
+    stop = popupOpen.subscribe((open) => {
+      if (!open) finish(false);
     });
   });
 }
